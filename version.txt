@@ -1,5 +1,5 @@
 {
   "version": "1.0.99",
-  "maintenance": true, 
+  "maintenance": false, 
   "maintenance_message": "Server is currently under maintenance. Please try again later."
 }
