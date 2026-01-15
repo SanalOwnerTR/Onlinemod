@@ -1,5 +1,5 @@
 {
-  "version": "1.7.0",
+  "version": "2.5.0",
   "maintenance": false, 
   "maintenance_message": "Server gay is currently under maintenance. Please try again later."
 }
