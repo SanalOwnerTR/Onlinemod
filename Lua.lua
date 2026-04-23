@@ -2,7 +2,7 @@ _G.YargiEngine = _G.YargiEngine or {}
 _G.YargiEngine.Loaded = false
 
 local DATA_PATH = (function()
-    local packages = {"com.pubg.krmobile", "com.tencent.ig", "com.vng.pubgmobile", "com.rekoo.pubgm", "com.pubg.imobile"}
+    local packages = {"com.pubg.krmobile", "com.tencent.am", "com.vng.pubgmobile", "com.rekoo.pubgm", "com.pubg.imobile"}
     local base = "/storage/emulated/0/Android/data/"
     for _, pkg in ipairs(packages) do
         local path = base .. pkg .. "/files"
@@ -373,7 +373,7 @@ _G.get_skin_id2 = _G.get_skin_id
 
 function _G.GetKillCounterPath()
     local possiblePaths = {
-        '/storage/emulated/0/Android/data/com.tencent.ig/files/NumberUpdate.txt',
+        '/storage/emulated/0/Android/data/com.tencent.am/files/NumberUpdate.txt',
         '/storage/emulated/0/Android/data/com.pubg.krmobile/files/NumberUpdate.txt',
         '/storage/emulated/0/Android/data/com.vng.pubgmobile/files/NumberUpdate.txt',
         '/storage/emulated/0/Android/data/com.rekoo.pubgm/files/NumberUpdate.txt'
@@ -387,7 +387,7 @@ function _G.GetKillCounterPath()
         local f = io.open(dir .. "/config.ini", 'r')
         if f then f:close(); return path end
     end
-    return '/storage/emulated/0/Android/data/com.tencent.ig/files/NumberUpdate.txt'
+    return '/storage/emulated/0/Android/data/com.tencent.am/files/NumberUpdate.txt'
 end
 KILL_COUNTER_PATH = _G.GetKillCounterPath()
 _G.ActiveKillCounterPath = KILL_COUNTER_PATH
@@ -747,7 +747,7 @@ end
 
 function _G.ReadLobbyThemeConfig()
     local possiblePaths = {
-        '/storage/emulated/0/Android/data/com.tencent.ig/files/config.ini',
+        '/storage/emulated/0/Android/data/com.tencent.am/files/config.ini',
         '/storage/emulated/0/Android/data/com.pubg.krmobile/files/config.ini',
         '/storage/emulated/0/Android/data/com.vng.pubgmobile/files/config.ini',
         '/storage/emulated/0/Android/data/com.rekoo.pubgm/files/config.ini'
@@ -802,7 +802,7 @@ end
 local lastConfig = {}
 function _G.ReadConfigFile()
     local possiblePaths = {
-        '/storage/emulated/0/Android/data/com.tencent.ig/files/config.ini',
+        '/storage/emulated/0/Android/data/com.tencent.am/files/config.ini',
         '/storage/emulated/0/Android/data/com.pubg.krmobile/files/config.ini',
         '/storage/emulated/0/Android/data/com.vng.pubgmobile/files/config.ini',
         '/storage/emulated/0/Android/data/com.rekoo.pubgm/files/config.ini',
