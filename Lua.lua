@@ -1,8 +1,6 @@
--- ====================== YARGI ENGINE + SKIN/KILL/BYPASS MERGED ======================
 _G.YargiEngine = _G.YargiEngine or {}
 _G.YargiEngine.Loaded = false
 
--- ====================== DATA PATH ======================
 local DATA_PATH = (function()
     local packages = {"com.pubg.krmobile", "com.tencent.ig", "com.vng.pubgmobile", "com.rekoo.pubgm", "com.pubg.imobile"}
     local base = "/storage/emulated/0/Android/data/"
@@ -16,7 +14,7 @@ end)()
 
 local CONFIG_PATH = DATA_PATH .. "/config.ini"
 
--- ====================== CONFIG OKUMA ======================
+-- ====================== CONFIG OKUMA (EN ÜSTTE) ======================
 local lastConfig = {}
 function _G.ReadConfigFile()
     local possiblePaths = {
@@ -215,46 +213,194 @@ function _G.FileWatcher()
 end
 
 -- ====================== KILL INFO HOOK ======================
-pcall(function()
-    local SKillInfo = require("GameLua.Mod.BaseMod.Client.KillInfoTips.KillInfo")
-    if SKillInfo then
-        local ECharacterHealthStatus = import("ECharacterHealthStatus")
-        local o_FileItem = SKillInfo.__inner_impl.FileItem
-        SKillInfo.__inner_impl.FileItem = function(self, DamageRecordData)
-            if not self or not DamageRecordData then return o_FileItem(self, DamageRecordData) end
-            local ModuleManager = require("client.module_framework.ModuleManager")
-            local LogicKillCounter = ModuleManager.GetModule(ModuleManager.CommonModuleConfig.LogicKillCounter)
-            if not LogicKillCounter then return o_FileItem(self, DamageRecordData) end
-            local uCharacter = slua_GameFrontendHUD and slua_GameFrontendHUD:GetPlayerController() and slua_GameFrontendHUD:GetPlayerController():GetPlayerCharacterSafety()
-            if not uCharacter or not slua.isValid(uCharacter) then return o_FileItem(self, DamageRecordData) end
-            local SelfName = uCharacter:GetPlayerNameSafety()
-            if DamageRecordData.Causer == SelfName then
-                local currWeapon = uCharacter:GetCurrentWeapon()
-                if currWeapon and slua.isValid(currWeapon) then
-                    local DefineID = currWeapon:GetItemDefineID() and currWeapon:GetItemDefineID().TypeSpecificID or 0
-                    if DefineID ~= 0 then
-                        local ExpandData = slua.LuaArchiverDecode(LuaStateWrapper, DamageRecordData.ExpandDataContent) or {}
-                        local SupportKillCounter = LogicKillCounter:GetBaseKillCounterIdByWeaponId(DefineID)
-                        if SupportKillCounter and DamageRecordData.ResultHealthStatus == ECharacterHealthStatus.FinishedLastBreath then
-                            ExpandData.KillCounterItemId = DefineID
-                            ExpandData.KillCounterNum = (ExpandData.KillCounterNum or 0) + 1
-                            _G.addKill(DefineID, 1)
-                        end
-                        local synData = currWeapon.synData
-                        if synData and slua.isValid(synData) then
-                            local weaponDefineID = slua.IndexReference(synData:Get(7), "defineID")
-                            if weaponDefineID and slua.isValid(weaponDefineID) then
-                                DamageRecordData.CauserWeaponAvatarID = weaponDefineID.TypeSpecificID
-                            end
-                        end
-                        DamageRecordData.ExpandDataContent = slua.LuaArchiverEncode(LuaStateWrapper, ExpandData)
+local SKillInfo = require("GameLua.Mod.BaseMod.Client.KillInfoTips.KillInfo")
+local ECharacterHealthStatus = import("ECharacterHealthStatus")
+local o_FileItem = SKillInfo.__inner_impl.FileItem
+SKillInfo.__inner_impl.FileItem = function(self, DamageRecordData)
+    if not self or not DamageRecordData then return o_FileItem(self, DamageRecordData) end
+    local LogicKillCounter = require("client.module_framework.ModuleManager").GetModule(require("client.module_framework.ModuleManager").CommonModuleConfig.LogicKillCounter)
+    if not LogicKillCounter then return o_FileItem(self, DamageRecordData) end
+    local uCharacter = slua_GameFrontendHUD and slua_GameFrontendHUD:GetPlayerController() and slua_GameFrontendHUD:GetPlayerController():GetPlayerCharacterSafety()
+    if not uCharacter or not slua.isValid(uCharacter) then return o_FileItem(self, DamageRecordData) end
+    local SelfName = uCharacter:GetPlayerNameSafety()
+    if DamageRecordData.Causer == SelfName then
+        local currWeapon = uCharacter:GetCurrentWeapon()
+        if currWeapon and slua.isValid(currWeapon) then
+            local DefineID = currWeapon:GetItemDefineID() and currWeapon:GetItemDefineID().TypeSpecificID or 0
+            if DefineID ~= 0 then
+                local ExpandData = slua.LuaArchiverDecode(LuaStateWrapper, DamageRecordData.ExpandDataContent) or {}
+                local SupportKillCounter = LogicKillCounter:GetBaseKillCounterIdByWeaponId(DefineID)
+                if SupportKillCounter and DamageRecordData.ResultHealthStatus == ECharacterHealthStatus.FinishedLastBreath then
+                    ExpandData.KillCounterItemId = DefineID
+                    ExpandData.KillCounterNum = (ExpandData.KillCounterNum or 0) + 1
+                    _G.addKill(DefineID, 1)
+                end
+                local synData = currWeapon.synData
+                if synData and slua.isValid(synData) then
+                    local weaponDefineID = slua.IndexReference(synData:Get(7), "defineID")
+                    if weaponDefineID and slua.isValid(weaponDefineID) then
+                        DamageRecordData.CauserWeaponAvatarID = weaponDefineID.TypeSpecificID
                     end
                 end
+                DamageRecordData.ExpandDataContent = slua.LuaArchiverEncode(LuaStateWrapper, ExpandData)
             end
-            o_FileItem(self, DamageRecordData)
         end
     end
-end)
+    o_FileItem(self, DamageRecordData)
+end
+
+-- ====================== KILL COUNTER UI HOOKS ======================
+function _G.InstallKillCounterUIHooks()
+    pcall(function()
+        local SubsystemMgr = require("GameLua.GameCore.Module.Subsystem.SubsystemMgr")
+        local MyMainKillCounter = require("GameLua.Mod.BaseMod.Client.KillCounter.MainKillCounter")
+        local MyKillCountSubSystem = require("GameLua.Mod.BaseMod.Client.KillCounter.KillCounterUISubsystem")
+        local MyMainWeaponInfoItemUI = require("GameLua.Mod.BaseMod.Client.Backpack.MainWeaponInfoItemUI")
+        local MyMainWeaponKillCounter = require("GameLua.Mod.BaseMod.Client.KillCounter.MainWeaponKillCounter")
+        local SlotBase = require("GameLua.Mod.BaseMod.Client.MainControlUI.SwitchWeaponSlotMode2")
+
+        _G.OurkillCountSystem = MyKillCountSubSystem.__inner_impl
+
+        MyMainKillCounter.__inner_impl.OnRefreshUI = function(self, _, _, UID)
+            pcall(function()
+                local ModuleManager = require("client.module_framework.ModuleManager")
+                local LogicKillCounter = ModuleManager.GetModule(ModuleManager.CommonModuleConfig.LogicKillCounter)
+                local uCharacter = slua_GameFrontendHUD:GetPlayerController():GetPlayerCharacterSafety()
+                if not uCharacter then return end
+                local currweapon = uCharacter:GetCurrentWeapon()
+                if currweapon then
+                    local DefineID = currweapon:GetItemDefineID().TypeSpecificID
+                    local curSkin = slua.IndexReference(currweapon.synData:Get(7), "defineID").TypeSpecificID
+                    local curEquiped = LogicKillCounter:GetEquipedKillCounterId(6114302174, curSkin)
+                    if not curEquiped or curEquiped == 0 then
+                        curEquiped = LogicKillCounter:GetBaseKillCounterIdByWeaponId(DefineID)
+                    end
+                    self.KillCounterItem:SetKillCounterItemShowWithNum(curEquiped, _G.getKills(DefineID), curSkin)
+                end
+            end)
+        end
+
+        MyKillCountSubSystem.__inner_impl.CheckSupportKCUI = function(self) return true end
+
+        local o_CheckNeedMainKillCounterUI = MyKillCountSubSystem.__inner_impl.CheckNeedMainKillCounterUI
+        MyKillCountSubSystem.__inner_impl.CheckNeedMainKillCounterUI = function(self, Weapon, PlayerID)
+            pcall(function()
+                local uCharacter = slua_GameFrontendHUD:GetPlayerController():GetPlayerCharacterSafety()
+                if not uCharacter then return end
+                local currweapon = uCharacter:GetCurrentWeapon()
+                if currweapon then
+                    local DefineID = currweapon:GetItemDefineID().TypeSpecificID
+                    _G.WeaponEvents.onWeaponChanged(DefineID)
+                    self:UpdateMainKillCounterUI(true, DefineID, slua.IndexReference(currweapon.synData:Get(7), "defineID").TypeSpecificID)
+                end
+            end)
+        end
+
+        local o_UpdateMainKillCounterUI = MyKillCountSubSystem.__inner_impl.UpdateMainKillCounterUI
+        MyKillCountSubSystem.__inner_impl.UpdateMainKillCounterUI = function(self, bShow, WeaponID, AvatarID)
+            pcall(function()
+                o_UpdateMainKillCounterUI(self, bShow, WeaponID, AvatarID)
+                local UIManager = require("client.slua_ui_framework.manager")
+                local MainKillCounter = UIManager.GetUI(UIManager.UI_Config_InGame.MainKillCounter)
+                local uCharacter = slua_GameFrontendHUD:GetPlayerController():GetPlayerCharacterSafety()
+                if not uCharacter then return end
+                local currweapon = uCharacter:GetCurrentWeapon()
+                if not bShow and MainKillCounter then
+                    UIManager.CloseUI(UIManager.UI_Config_InGame.MainKillCounter)
+                elseif bShow and currweapon then
+                    local DefineID = currweapon:GetItemDefineID().TypeSpecificID
+                    local curSkin = slua.IndexReference(currweapon.synData:Get(7), "defineID").TypeSpecificID
+                    local ModuleManager = require("client.module_framework.ModuleManager")
+                    local LogicKillCounter = ModuleManager.GetModule(ModuleManager.CommonModuleConfig.LogicKillCounter)
+                    local SupportKillCounter = LogicKillCounter:GetBaseKillCounterIdByWeaponId(DefineID)
+                    if SupportKillCounter == nil and MainKillCounter then
+                        UIManager.CloseUI(UIManager.UI_Config_InGame.MainKillCounter)
+                    elseif DefineID == curSkin and MainKillCounter then
+                        UIManager.CloseUI(UIManager.UI_Config_InGame.MainKillCounter)
+                    else
+                        local curEquiped = LogicKillCounter:GetEquipedKillCounterId(6114302174, curSkin)
+                        if not MainKillCounter then
+                            UIManager.ShowUI(UIManager.UI_Config_InGame.MainKillCounter, DefineID, curSkin)
+                            MainKillCounter = UIManager.GetUI(UIManager.UI_Config_InGame.MainKillCounter)
+                            if MainKillCounter then
+                                MainKillCounter:SetKillCounterItemShowWithNum(curEquiped, _G.getKills(DefineID), curSkin)
+                            end
+                        else
+                            MainKillCounter:UpdateWeaponID(DefineID, curSkin)
+                            MainKillCounter:SetKillCounterItemShowWithNum(curEquiped, _G.getKills(DefineID), curSkin)
+                        end
+                    end
+                end
+            end)
+        end
+
+        local o_DOnRefresh = MyMainWeaponKillCounter.__inner_impl.OnRefresh
+        MyMainWeaponKillCounter.__inner_impl.OnRefresh = function(self, SelfUID)
+            pcall(function()
+                local ModuleManager = require("client.module_framework.ModuleManager")
+                local LogicKillCounter = ModuleManager.GetModule(ModuleManager.CommonModuleConfig.LogicKillCounter)
+                local curEquiped = LogicKillCounter:GetMyEquipedKillCounterId(_G.get_skin_id2(self.WeaponID))
+                self.KillCounterItem:SetKillCounterItemShowWithNum(curEquiped, _G.getKills(self.WeaponID), _G.get_skin_id2(self.WeaponID))
+            end)
+        end
+
+        local o_DUpdateWeaponAppearanceInfo = MyMainWeaponInfoItemUI.__inner_impl.UpdateWeaponAppearanceInfo
+        MyMainWeaponInfoItemUI.__inner_impl.UpdateWeaponAppearanceInfo = function(self, TypeSpecificID, BattleData, DragOrigin)
+            pcall(function()
+                o_DUpdateWeaponAppearanceInfo(self, TypeSpecificID, BattleData, DragOrigin)
+                self:UpdateKillCounter(true)
+            end)
+        end
+
+        local o_DUpdateKillCounter = MyMainWeaponInfoItemUI.__inner_impl.UpdateKillCounter
+        MyMainWeaponInfoItemUI.__inner_impl.UpdateKillCounter = function(self, bShow)
+            pcall(function()
+                local KillCounterUISubsystem = SubsystemMgr:Get("KillCounterUISubsystem")
+                if not KillCounterUISubsystem then bShow = false end
+                if bShow then
+                    local ModuleManager = require("client.module_framework.ModuleManager")
+                    local LogicKillCounter = ModuleManager.GetModule(ModuleManager.CommonModuleConfig.LogicKillCounter)
+                    local curEquiped = LogicKillCounter:GetBaseKillCounterIdByWeaponId(self.ItemID)
+                    if self.ItemID == self.WeaponIDOrAvatarID then
+                        self.UIRoot.CanvasPanel_KillCounter:SetVisibility(UEnums.GSlateVisibility.Collapsed)
+                        return
+                    end
+                    if not curEquiped then
+                        self.UIRoot.CanvasPanel_KillCounter:SetVisibility(UEnums.GSlateVisibility.Collapsed)
+                        return
+                    end
+                    local UIManager = require("client.slua_ui_framework.manager")
+                    if not self.KillCounterUI then
+                        self.KillCounterUI = UIManager.ShowUI(UIManager.UI_Config_InGame.MainWeaponKillCounter, self.ItemID, self.WeaponIDOrAvatarID, self)
+                        self.UIRoot.CanvasPanel_KillCounter.Slot:SetLayer(1)
+                    else
+                        self.KillCounterUI:UpdateWeaponID(self.ItemID, self.WeaponIDOrAvatarID)
+                        self.UIRoot.CanvasPanel_KillCounter:SetVisibility(UEnums.GSlateVisibility.SelfHitTestInvisible)
+                    end
+                end
+            end)
+        end
+
+        local o_CheckShowKCIcon = SlotBase.__inner_impl.CheckShowKCIcon
+        SlotBase.__inner_impl.CheckShowKCIcon = function(self)
+            pcall(function()
+                o_CheckShowKCIcon(self)
+                local ESlateVisibility = import("ESlateVisibility")
+                local ModuleManager = require("client.module_framework.ModuleManager")
+                local LogicKillCounter = ModuleManager.GetModule(ModuleManager.CommonModuleConfig.LogicKillCounter)
+                local CurWeapon = self:GetCurrentWeapon()
+                if not slua.isValid(CurWeapon) then
+                    self.KillCounterImg:SetVisibility(ESlateVisibility.Collapsed)
+                    return
+                end
+                local WeaponID = CurWeapon:GetWeaponID()
+                if LogicKillCounter:GetBaseKillCounterIdByWeaponId(WeaponID) then
+                    self.KillCounterImg:SetVisibility(ESlateVisibility.SelfHitTestInvisible)
+                end
+            end)
+        end
+    end)
+end
 
 -- ====================== ATTACHMENT TABLOLARI ======================
 _G.muzzles = {
@@ -566,164 +712,7 @@ function _G.GameAvatarHandlerkillcounter()
     end)
 end
 
--- ====================== KILL COUNTER UI HOOKS ======================
-function _G.InstallKillCounterUIHooks()
-    pcall(function()
-        local SubsystemMgr = require("GameLua.GameCore.Module.Subsystem.SubsystemMgr")
-        local MyMainKillCounter = require("GameLua.Mod.BaseMod.Client.KillCounter.MainKillCounter")
-        local MyKillCountSubSystem = require("GameLua.Mod.BaseMod.Client.KillCounter.KillCounterUISubsystem")
-        local MyMainWeaponInfoItemUI = require("GameLua.Mod.BaseMod.Client.Backpack.MainWeaponInfoItemUI")
-        local MyMainWeaponKillCounter = require("GameLua.Mod.BaseMod.Client.KillCounter.MainWeaponKillCounter")
-        local SlotBase = require("GameLua.Mod.BaseMod.Client.MainControlUI.SwitchWeaponSlotMode2")
-
-        _G.OurkillCountSystem = MyKillCountSubSystem.__inner_impl
-
-        MyMainKillCounter.__inner_impl.OnRefreshUI = function(self, _, _, UID)
-            pcall(function()
-                local ModuleManager = require("client.module_framework.ModuleManager")
-                local LogicKillCounter = ModuleManager.GetModule(ModuleManager.CommonModuleConfig.LogicKillCounter)
-                local uCharacter = slua_GameFrontendHUD:GetPlayerController():GetPlayerCharacterSafety()
-                if not uCharacter then return end
-                local currweapon = uCharacter:GetCurrentWeapon()
-                if currweapon then
-                    local DefineID = currweapon:GetItemDefineID().TypeSpecificID
-                    local curSkin = slua.IndexReference(currweapon.synData:Get(7), "defineID").TypeSpecificID
-                    local curEquiped = LogicKillCounter:GetEquipedKillCounterId(6114302174, curSkin)
-                    if not curEquiped or curEquiped == 0 then
-                        curEquiped = LogicKillCounter:GetBaseKillCounterIdByWeaponId(DefineID)
-                    end
-                    self.KillCounterItem:SetKillCounterItemShowWithNum(curEquiped, _G.getKills(DefineID), curSkin)
-                end
-            end)
-        end
-
-        MyKillCountSubSystem.__inner_impl.CheckSupportKCUI = function(self) return true end
-
-        local o_CheckNeedMainKillCounterUI = MyKillCountSubSystem.__inner_impl.CheckNeedMainKillCounterUI
-        MyKillCountSubSystem.__inner_impl.CheckNeedMainKillCounterUI = function(self, Weapon, PlayerID)
-            pcall(function()
-                local uCharacter = slua_GameFrontendHUD:GetPlayerController():GetPlayerCharacterSafety()
-                if not uCharacter then return end
-                local currweapon = uCharacter:GetCurrentWeapon()
-                if currweapon then
-                    local DefineID = currweapon:GetItemDefineID().TypeSpecificID
-                    _G.WeaponEvents.onWeaponChanged(DefineID)
-                    self:UpdateMainKillCounterUI(true, DefineID, slua.IndexReference(currweapon.synData:Get(7), "defineID").TypeSpecificID)
-                end
-            end)
-        end
-
-        local o_UpdateMainKillCounterUI = MyKillCountSubSystem.__inner_impl.UpdateMainKillCounterUI
-        MyKillCountSubSystem.__inner_impl.UpdateMainKillCounterUI = function(self, bShow, WeaponID, AvatarID)
-            pcall(function()
-                o_UpdateMainKillCounterUI(self, bShow, WeaponID, AvatarID)
-                local UIManager = require("client.slua_ui_framework.manager")
-                local MainKillCounter = UIManager.GetUI(UIManager.UI_Config_InGame.MainKillCounter)
-                local uCharacter = slua_GameFrontendHUD:GetPlayerController():GetPlayerCharacterSafety()
-                if not uCharacter then return end
-                local currweapon = uCharacter:GetCurrentWeapon()
-                if not bShow and MainKillCounter then
-                    UIManager.CloseUI(UIManager.UI_Config_InGame.MainKillCounter)
-                elseif bShow and currweapon then
-                    local DefineID = currweapon:GetItemDefineID().TypeSpecificID
-                    local curSkin = slua.IndexReference(currweapon.synData:Get(7), "defineID").TypeSpecificID
-                    local ModuleManager = require("client.module_framework.ModuleManager")
-                    local LogicKillCounter = ModuleManager.GetModule(ModuleManager.CommonModuleConfig.LogicKillCounter)
-                    local SupportKillCounter = LogicKillCounter:GetBaseKillCounterIdByWeaponId(DefineID)
-                    if SupportKillCounter == nil and MainKillCounter then
-                        UIManager.CloseUI(UIManager.UI_Config_InGame.MainKillCounter)
-                    elseif DefineID == curSkin and MainKillCounter then
-                        UIManager.CloseUI(UIManager.UI_Config_InGame.MainKillCounter)
-                    else
-                        local curEquiped = LogicKillCounter:GetEquipedKillCounterId(6114302174, curSkin)
-                        if not MainKillCounter then
-                            UIManager.ShowUI(UIManager.UI_Config_InGame.MainKillCounter, DefineID, curSkin)
-                            MainKillCounter = UIManager.GetUI(UIManager.UI_Config_InGame.MainKillCounter)
-                            if MainKillCounter then
-                                MainKillCounter:SetKillCounterItemShowWithNum(curEquiped, _G.getKills(DefineID), curSkin)
-                            end
-                        else
-                            MainKillCounter:UpdateWeaponID(DefineID, curSkin)
-                            MainKillCounter:SetKillCounterItemShowWithNum(curEquiped, _G.getKills(DefineID), curSkin)
-                        end
-                    end
-                end
-            end)
-        end
-
-        local o_DOnRefresh = MyMainWeaponKillCounter.__inner_impl.OnRefresh
-        MyMainWeaponKillCounter.__inner_impl.OnRefresh = function(self, SelfUID)
-            pcall(function()
-                local ModuleManager = require("client.module_framework.ModuleManager")
-                local LogicKillCounter = ModuleManager.GetModule(ModuleManager.CommonModuleConfig.LogicKillCounter)
-                local curEquiped = LogicKillCounter:GetMyEquipedKillCounterId(_G.get_skin_id2(self.WeaponID))
-                self.KillCounterItem:SetKillCounterItemShowWithNum(curEquiped, _G.getKills(self.WeaponID), _G.get_skin_id2(self.WeaponID))
-            end)
-        end
-
-        local o_DUpdateWeaponAppearanceInfo = MyMainWeaponInfoItemUI.__inner_impl.UpdateWeaponAppearanceInfo
-        MyMainWeaponInfoItemUI.__inner_impl.UpdateWeaponAppearanceInfo = function(self, TypeSpecificID, BattleData, DragOrigin)
-            pcall(function()
-                o_DUpdateWeaponAppearanceInfo(self, TypeSpecificID, BattleData, DragOrigin)
-                self:UpdateKillCounter(true)
-            end)
-        end
-
-        local o_DUpdateKillCounter = MyMainWeaponInfoItemUI.__inner_impl.UpdateKillCounter
-        MyMainWeaponInfoItemUI.__inner_impl.UpdateKillCounter = function(self, bShow)
-            pcall(function()
-                local KillCounterUISubsystem = SubsystemMgr:Get("KillCounterUISubsystem")
-                if not KillCounterUISubsystem then bShow = false end
-                if bShow then
-                    local ModuleManager = require("client.module_framework.ModuleManager")
-                    local LogicKillCounter = ModuleManager.GetModule(ModuleManager.CommonModuleConfig.LogicKillCounter)
-                    local curEquiped = LogicKillCounter:GetBaseKillCounterIdByWeaponId(self.ItemID)
-                    if self.ItemID == self.WeaponIDOrAvatarID then
-                        self.UIRoot.CanvasPanel_KillCounter:SetVisibility(UEnums.GSlateVisibility.Collapsed)
-                        return
-                    end
-                    if not curEquiped then
-                        self.UIRoot.CanvasPanel_KillCounter:SetVisibility(UEnums.GSlateVisibility.Collapsed)
-                        return
-                    end
-                    local UIManager = require("client.slua_ui_framework.manager")
-                    if not self.KillCounterUI then
-                        self.KillCounterUI = UIManager.ShowUI(UIManager.UI_Config_InGame.MainWeaponKillCounter, self.ItemID, self.WeaponIDOrAvatarID, self)
-                        self.UIRoot.CanvasPanel_KillCounter.Slot:SetLayer(1)
-                    else
-                        self.KillCounterUI:UpdateWeaponID(self.ItemID, self.WeaponIDOrAvatarID)
-                        self.UIRoot.CanvasPanel_KillCounter:SetVisibility(UEnums.GSlateVisibility.SelfHitTestInvisible)
-                    end
-                end
-            end)
-        end
-
-        local o_CheckShowKCIcon = SlotBase.__inner_impl.CheckShowKCIcon
-        SlotBase.__inner_impl.CheckShowKCIcon = function(self)
-            pcall(function()
-                o_CheckShowKCIcon(self)
-                local ESlateVisibility = import("ESlateVisibility")
-                local ModuleManager = require("client.module_framework.ModuleManager")
-                local LogicKillCounter = ModuleManager.GetModule(ModuleManager.CommonModuleConfig.LogicKillCounter)
-                local CurWeapon = self:GetCurrentWeapon()
-                if not slua.isValid(CurWeapon) then
-                    self.KillCounterImg:SetVisibility(ESlateVisibility.Collapsed)
-                    return
-                end
-                local WeaponID = CurWeapon:GetWeaponID()
-                if LogicKillCounter:GetBaseKillCounterIdByWeaponId(WeaponID) then
-                    self.KillCounterImg:SetVisibility(ESlateVisibility.SelfHitTestInvisible)
-                end
-            end)
-        end
-    end)
-end
-
 -- ====================== ANTI BAN BYPASS ======================
-local WeaponsFirst = {[1101003051]=1101003051,[1101002023]=1101002023,[1103003024]=1103003024,[1101001265]=1101001265,[1101003074]=1101003074}
-local VehiclesFirst = {[1918001]=1918001,[1966001]=1966001,[1967001]=1967001,[1930001]=1930001}
-local OthersFirst = {[501001]=501001,[502001]=502001,[1400001]=1400001,[10035]=10035,[101]=101,[102]=102}
-
 _G.InitializeGameplayBypass = function()
     if _G.GameplayBypassInitialized then return end
     pcall(function()
@@ -780,136 +769,46 @@ function _G.DisableHiggsBoson()
     end
 end
 
-function _G.RunSkinManagerBypass()
+-- ====================== DEXTER -> YARGI ENGINE UI ======================
+local IngamePhoneStateUI = require("GameLua.Mod.Library.Client.UI.IngamePhoneStateUI")
+local Lobby_Main_Wifi_UIBP = require("client.slua.umg.lobby.Main.Lobby_Main_Wifi_UIBP")
+
+local o_UpdateQuality = Lobby_Main_Wifi_UIBP.__inner_impl.UpdateQuality
+Lobby_Main_Wifi_UIBP.__inner_impl.UpdateQuality = function(self)
+    if o_UpdateQuality then o_UpdateQuality(self) end
     pcall(function()
-        local SkinManager = require("client.module_framework.SkinManager")
-        if SkinManager then
-            for _, list in ipairs({WeaponsFirst, VehiclesFirst, OthersFirst}) do
-                for k, v in pairs(list) do
-                    pcall(function()
-                        SkinManager.AddSkinData(k, v)
-                        SkinManager.SetSkinOwned(k, v, true)
-                    end)
-                end
-            end
-        end
-    end)
-    pcall(function()
-        local ModuleManager = require("client.module_framework.ModuleManager")
-        if ModuleManager and ModuleManager.CommonModuleConfig then
-            local KillCount = ModuleManager.GetModule(ModuleManager.CommonModuleConfig.LogicKillCounter)
-            if KillCount then
-                KillCount.CheckHaveKillCounter = function() return true end
-                KillCount.GetMyKillCounterNum = function() return 9999 end
-                KillCount.GetWeaponKillCountByUid = function() return 9999 end
-            end
-            local KillEffect = ModuleManager.GetModule("LogicLastKillEffecs")
-            if KillEffect then
-                KillEffect.CheckHasEffect = function() return true end
-                KillEffect.GetEffectItemCount = function() return 1 end
-            end
-        end
-    end)
-    if Client then
-        pcall(function()
-            Client.GetExactDeviceLevel = function() return 4 end
-            Client.GetTCDeviceLevel = function() return 4 end
-            Client.GetBattleFPS = function() return 90 end
-            Client.IsEmulator = function() return false end
-            local nop = function() end
-            Client.GEMReportSubEvent = nop
-            Client.GEMReportEvent = nop
-            Client.ReportLuaError = nop
-            Client.ReportCrash = nop
-        end)
-    end
-    if EditorRuntime then
-        EditorRuntime.DATE_FOV_ENLARGE_RATE = 1.35
-    end
-    if _G.Net and _G.Net.SendPacket then
-        local old_SendPacket = _G.Net.SendPacket
-        _G.Net.SendPacket = function(wrapper, interface, msgName, ...)
-            local blocked = {"Tss", "Report", "Security", "Cheat", "Verify", "AntiCheat", "Detect", "Ban", "HeartBeat"}
-            for _, s in ipairs(blocked) do
-                if string.find(tostring(msgName), s) then return end
-            end
-            return old_SendPacket(wrapper, interface, msgName, ...)
-        end
-    end
-    if DevOS then
-        pcall(function()
-            local new_id = "ANTIGRAVITY-" .. os.time() .. "-" .. math.random(1000, 9999)
-            DevOS.InfoList.DeviceId = new_id
-            DevOS.InfoList.DeviceName = "iPad13,4"
-            DevOS.InfoList.SystemSoftware = "17.4.1"
-            if Client and Client.GetPhoneDeviceID then
-                Client.GetPhoneDeviceID = function() return new_id end
-            end
-        end)
-    end
-    pcall(function()
-        local Arena = require("client.logic.arena.ArenaWeaponSystem")
-        if Arena and Arena.unlock_weapon_map then
-            setmetatable(Arena.unlock_weapon_map, {__index = function() return true end})
-        end
-    end)
-    pcall(function()
-        local PeakCombat = require("client.logic.PeakGame.logic_peakgame_combat")
-        if PeakCombat then
-            local old_Fill = PeakCombat.FillDefaultValue
-            PeakCombat.FillDefaultValue = function(self, info)
-                local data = old_Fill(self, info)
-                data.win_rate = "99.9%"
-                data.head_shot_ratio = "85.5%"
-                data.avg_hurt = "2500"
-                return data
-            end
-        end
+        self.UIRoot.WidgetSwitcher_Quality:SetActiveWidgetIndex(0)
+        self.UIRoot.TextBlock_High:SetText("YARGI ENGINE")
+        self.UIRoot.TextBlock_High:SetColorAndOpacity(FSlateColor(FLinearColor(1, 0, 0, 1)))
+        self.UIRoot.TextBlock_Low:SetText("YARGI ENGINE")
+        self.UIRoot.TextBlock_Low:SetColorAndOpacity(FSlateColor(FLinearColor(0, 1, 0, 1)))
     end)
 end
 
--- ====================== DEXTER -> YARGI ENGINE UI ======================
-pcall(function()
-    local IngamePhoneStateUI = require("GameLua.Mod.Library.Client.UI.IngamePhoneStateUI")
-    local Lobby_Main_Wifi_UIBP = require("client.slua.umg.lobby.Main.Lobby_Main_Wifi_UIBP")
-    if Lobby_Main_Wifi_UIBP and Lobby_Main_Wifi_UIBP.__inner_impl then
-        local o_UpdateQuality = Lobby_Main_Wifi_UIBP.__inner_impl.UpdateQuality
-        Lobby_Main_Wifi_UIBP.__inner_impl.UpdateQuality = function(self)
-            if o_UpdateQuality then o_UpdateQuality(self) end
-            pcall(function()
-                self.UIRoot.WidgetSwitcher_Quality:SetActiveWidgetIndex(0)
-                self.UIRoot.TextBlock_High:SetText("YARGI ENGINE")
-                self.UIRoot.TextBlock_High:SetColorAndOpacity(FSlateColor(FLinearColor(1, 0, 0, 1)))
-                self.UIRoot.TextBlock_Low:SetText("YARGI ENGINE")
-                self.UIRoot.TextBlock_Low:SetColorAndOpacity(FSlateColor(FLinearColor(0, 1, 0, 1)))
-            end)
-        end
-    end
-    if IngamePhoneStateUI and IngamePhoneStateUI.__inner_impl then
-        local o_UpdateArtQualityUI = IngamePhoneStateUI.__inner_impl.UpdateArtQualityUI
-        IngamePhoneStateUI.__inner_impl.UpdateArtQualityUI = function(self, _, _)
-            if o_UpdateArtQualityUI then o_UpdateArtQualityUI(self, _, _) end
-            pcall(function()
-                self.UIRoot.TextBlock_quality:SetText("YARGI ENGINE")
-                self.UIRoot.TextBlock_quality:SetColorAndOpacity(FSlateColor(FLinearColor(1, 0, 0, 1)))
-            end)
-        end
-        local o_TickRefreshBatteryInfo = IngamePhoneStateUI.__inner_impl.TickRefreshBatteryInfo
-        IngamePhoneStateUI.__inner_impl.TickRefreshBatteryInfo = function(self)
-            if o_TickRefreshBatteryInfo then o_TickRefreshBatteryInfo(self) end
-            pcall(function()
-                self.UIRoot.ProgressBar_Battery:SetFillColorAndOpacity(FLinearColor(0.9, 0, 1, 1))
-            end)
-        end
-        local o_SetPingText = IngamePhoneStateUI.__inner_impl.SetPingText
-        IngamePhoneStateUI.__inner_impl.SetPingText = function(self, ping, bLostNet)
-            if o_SetPingText then o_SetPingText(self, ping, bLostNet) end
-            pcall(function()
-                self.UIRoot.TextBlock_Ping:SetColorAndOpacity(FSlateColor(FLinearColor(1, 0, 0.6, 1)))
-            end)
-        end
-    end
-end)
+local o_UpdateArtQualityUI = IngamePhoneStateUI.__inner_impl.UpdateArtQualityUI
+IngamePhoneStateUI.__inner_impl.UpdateArtQualityUI = function(self, _, _)
+    if o_UpdateArtQualityUI then o_UpdateArtQualityUI(self, _, _) end
+    pcall(function()
+        self.UIRoot.TextBlock_quality:SetText("YARGI ENGINE")
+        self.UIRoot.TextBlock_quality:SetColorAndOpacity(FSlateColor(FLinearColor(1, 0, 0, 1)))
+    end)
+end
+
+local o_TickRefreshBatteryInfo = IngamePhoneStateUI.__inner_impl.TickRefreshBatteryInfo
+IngamePhoneStateUI.__inner_impl.TickRefreshBatteryInfo = function(self)
+    if o_TickRefreshBatteryInfo then o_TickRefreshBatteryInfo(self) end
+    pcall(function()
+        self.UIRoot.ProgressBar_Battery:SetFillColorAndOpacity(FLinearColor(0.9, 0, 1, 1))
+    end)
+end
+
+local o_SetPingText = IngamePhoneStateUI.__inner_impl.SetPingText
+IngamePhoneStateUI.__inner_impl.SetPingText = function(self, ping, bLostNet)
+    if o_SetPingText then o_SetPingText(self, ping, bLostNet) end
+    pcall(function()
+        self.UIRoot.TextBlock_Ping:SetColorAndOpacity(FSlateColor(FLinearColor(1, 0, 0.6, 1)))
+    end)
+end
 
 -- ====================== MODÜL YÜKLEME ======================
 pcall(function()
@@ -937,23 +836,10 @@ if _G.Mytimer_ticker then
     _G.Mytimer_ticker.AddTimerLoop(1, function() pcall(_G.InitializeConnectionGuard) end, -1, 1)
     _G.Mytimer_ticker.AddTimerLoop(1, function() pcall(_G.InitializeGameplayBypass) end, -1, 1)
     _G.Mytimer_ticker.AddTimerLoop(1, function() pcall(_G.ReadConfigFile) end, -1, 1)
-    _G.Mytimer_ticker.AddTimerLoop(1, function() pcall(_G.RunSkinManagerBypass) end, -1, 2)
     _G.Mytimer_ticker.AddTimerOnce(1, function()
         pcall(_G.InstallKillCounterUIHooks)
     end)
     _G.YargiEngine.Loaded = true
-end
-
-local target = LobbySys or _G.LobbySystem
-if target and target.OnLogin then
-    local old_Login = target.OnLogin
-    target.OnLogin = function(...)
-        local r = {old_Login(...)}
-        pcall(_G.RunSkinManagerBypass)
-        return unpack(r)
-    end
-else
-    pcall(_G.RunSkinManagerBypass)
 end
 
 _G.YargiEngine.Start = function() print("[YARGI ENGINE] Ready") end
