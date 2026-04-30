@@ -2,12 +2,14 @@ _G.YargiEngine = _G.YargiEngine or {}
 _G.YargiEngine.Loaded = false
 
 local DATA_PATH = (function()
-    local packages = {"com.pubg.krmobile", "com.tencent.ig", "com.vng.pubgmobile", "com.rekoo.pubgm", "com.pubg.imobile"}
+    local packages = { "com.pubg.krmobile", "com.tencent.ig", "com.vng.pubgmobile", "com.rekoo.pubgm", "com.pubg.imobile" }
     local base = "/storage/emulated/0/Android/data/"
     for _, pkg in ipairs(packages) do
         local path = base .. pkg .. "/files"
         local f = io.open(path .. "/config.ini", "r")
-        if f then f:close(); return path end
+        if f then
+            f:close(); return path
+        end
     end
     return base .. "com.pubg.krmobile/files"
 end)()
@@ -27,7 +29,9 @@ function _G.ReadConfigFile()
     local configPath = nil
     for _, path in ipairs(possiblePaths) do
         local file = io.open(path, 'r')
-        if file then file:close(); configPath = path; break end
+        if file then
+            file:close(); configPath = path; break
+        end
     end
     if not configPath then return end
 
@@ -59,9 +63,14 @@ function _G.ReadConfigFile()
     UpdWep('Pan', 106001); UpdWep('P90', 102009)
 
     local vehMap = {
-        Vehicle_UAZ=101, Vehicle_Buggy=102, Vehicle_Bike=103,
-        Vehicle_Boat=104, Vehicle_Pickup=108, Vehicle_Mirado=109,
-        Vehicle_Coupe=112, Vehicle_Dacia=113
+        Vehicle_UAZ = 101,
+        Vehicle_Buggy = 102,
+        Vehicle_Bike = 103,
+        Vehicle_Boat = 104,
+        Vehicle_Pickup = 108,
+        Vehicle_Mirado = 109,
+        Vehicle_Coupe = 112,
+        Vehicle_Dacia = 113
     }
     for key, id in pairs(vehMap) do
         if newConfig[key] and newConfig[key] ~= lastConfig[key] then
@@ -73,52 +82,52 @@ end
 
 -- ====================== SİLAH SKIN ID'LERİ ======================
 _G.skinIdMappings = {
-    [101004]={101004,1101004046,1101004226,1101004236,1101004062,1101004078,1101004086,1101004098,1101004138,1101004163,1101004201,1101004209,1101004218},
-    [101001]={101001,1101001089,1101001213,1101001172,1101001127,1101001142,1101001153,1101001115,1101001102,1101001230,1101001241},
-    [101003]={101003,1103003208,1101003195,1101003187,1101003098,1101003166,1101003069,1101003218,1101003079,1101003118,1101003145,1101003180,1101003056},
-    [103001]={103001,1103001191,1103001101,1103001178,1103001145,1103001230,1103001213},
-    [102002]={102002,1102002136,1102002043,1102002061,1102002424,1102002198},
-    [103002]={103002,1103002030,1103002087,1103002105,1103002112,1103002201},
-    [103003]={103003,1103003042,1103003087,1103003062,1103003022,1103003051,1103003030,1103003079},
-    [101008]={101008,1101008079,1101008126,1101008104,1101008146,1101008026,1101008061,1101008116,1101008051},
-    [102003]={102003,1102003019,1102003030,1102003064,1102003079},
-    [105010]={105010,1105010018,1105010007,1105010025},
-    [102004]={102004,1102004017,1102004033,1102004048},
-    [105002]={105002,1105002090,1105002075,1105002018,1105002034,1105002057,1105002062},
-    [105001]={105001,1105001047,1105001068,1105001033,1105001061},
-    [101006]={101006,1101006061,1101006074,1101006043,1101006032,1101006084,1101006096},
-    [104004]={104004,1104004034,1104004015,1104004040},
-    [101002]={101002,1101002081,1101002105,1101002128},
-    [101005]={101005,1101005052,1101005073,1101005091},
-    [101007]={101007,1101007046,1101007068,1101007089},
-    [102001]={102001,1102001103,1102001124,1102001148},
-    [103004]={103004,1103004001,1103004022,1103004047},
-    [103006]={103006,1103006030,1103006055,1103006079},
-    [103007]={103007,1103007028,1103007049},
-    [103012]={103012,1103012010,1103012025},
-    [104003]={104003,1104003027,1104003048},
-    [101009]={101009,1101009035,1101009058,1101009079},
-    [101010]={101010,1101010022,1101010043},
-    [101011]={101011,1101011019,1101011038},
-    [103008]={103008,1103008015,1103008035},
-    [103009]={103009,1103009018,1103009037},
-    [103011]={103011,1103011010,1103011022},
-    [102005]={102005,1102005018,1102005037},
-    [102006]={102006,1102006015,1102006031},
-    [104005]={104005,1104005012,1104005025},
-    [106001]={106001,1108004356}
+    [101004] = { 101004, 1101004046, 1101004226, 1101004236, 1101004062, 1101004078, 1101004086, 1101004098, 1101004138, 1101004163, 1101004201, 1101004209, 1101004218 },
+    [101001] = { 101001, 1101001089, 1101001213, 1101001172, 1101001127, 1101001142, 1101001153, 1101001115, 1101001102, 1101001230, 1101001241 },
+    [101003] = { 101003, 1103003208, 1101003195, 1101003187, 1101003098, 1101003166, 1101003069, 1101003218, 1101003079, 1101003118, 1101003145, 1101003180, 1101003056 },
+    [103001] = { 103001, 1103001191, 1103001101, 1103001178, 1103001145, 1103001230, 1103001213 },
+    [102002] = { 102002, 1102002136, 1102002043, 1102002061, 1102002424, 1102002198 },
+    [103002] = { 103002, 1103002030, 1103002087, 1103002105, 1103002112, 1103002201 },
+    [103003] = { 103003, 1103003042, 1103003087, 1103003062, 1103003022, 1103003051, 1103003030, 1103003079 },
+    [101008] = { 101008, 1101008079, 1101008126, 1101008104, 1101008146, 1101008026, 1101008061, 1101008116, 1101008051 },
+    [102003] = { 102003, 1102003019, 1102003030, 1102003064, 1102003079 },
+    [105010] = { 105010, 1105010018, 1105010007, 1105010025 },
+    [102004] = { 102004, 1102004017, 1102004033, 1102004048 },
+    [105002] = { 105002, 1105002090, 1105002075, 1105002018, 1105002034, 1105002057, 1105002062 },
+    [105001] = { 105001, 1105001047, 1105001068, 1105001033, 1105001061 },
+    [101006] = { 101006, 1101006061, 1101006074, 1101006043, 1101006032, 1101006084, 1101006096 },
+    [104004] = { 104004, 1104004034, 1104004015, 1104004040 },
+    [101002] = { 101002, 1101002081, 1101002105, 1101002128 },
+    [101005] = { 101005, 1101005052, 1101005073, 1101005091 },
+    [101007] = { 101007, 1101007046, 1101007068, 1101007089 },
+    [102001] = { 102001, 1102001103, 1102001124, 1102001148 },
+    [103004] = { 103004, 1103004001, 1103004022, 1103004047 },
+    [103006] = { 103006, 1103006030, 1103006055, 1103006079 },
+    [103007] = { 103007, 1103007028, 1103007049 },
+    [103012] = { 103012, 1103012010, 1103012025 },
+    [104003] = { 104003, 1104003027, 1104003048 },
+    [101009] = { 101009, 1101009035, 1101009058, 1101009079 },
+    [101010] = { 101010, 1101010022, 1101010043 },
+    [101011] = { 101011, 1101011019, 1101011038 },
+    [103008] = { 103008, 1103008015, 1103008035 },
+    [103009] = { 103009, 1103009018, 1103009037 },
+    [103011] = { 103011, 1103011010, 1103011022 },
+    [102005] = { 102005, 1102005018, 1102005037 },
+    [102006] = { 102006, 1102006015, 1102006031 },
+    [104005] = { 104005, 1104005012, 1104005025 },
+    [106001] = { 106001, 1108004356 }
 }
 
 _G.VehskinIdMappings = {
-    [101]={1105001001,1105001002,1105001003,1105001004},
-    [102]={1105002001,1105002002,1105002003,1105002004},
-    [103]={1105003001,1105003002,1105003003},
-    [104]={1105004001,1105004002},
-    [108]={1105008001,1105008002,1105008003},
-    [109]={1105009001,1105009002},
-    [111]={1105011001,1105011002},
-    [112]={1961007,1961010,1961012,1961013,1961014,1961015,1961016,1961017,1961018,1961020,1961021,1961024,1961025,1961029,1961030,1961031,1961041,1961042,1961044,1961048,1961050,1961051},
-    [113]={1903075,1903071,1903072,1903073,1903074,1903076,1903200,1903201}
+    [101] = { 1105001001, 1105001002, 1105001003, 1105001004 },
+    [102] = { 1105002001, 1105002002, 1105002003, 1105002004 },
+    [103] = { 1105003001, 1105003002, 1105003003 },
+    [104] = { 1105004001, 1105004002 },
+    [108] = { 1105008001, 1105008002, 1105008003 },
+    [109] = { 1105009001, 1105009002 },
+    [111] = { 1105011001, 1105011002 },
+    [112] = { 1961007, 1961010, 1961012, 1961013, 1961014, 1961015, 1961016, 1961017, 1961018, 1961020, 1961021, 1961024, 1961025, 1961029, 1961030, 1961031, 1961041, 1961042, 1961044, 1961048, 1961050, 1961051 },
+    [113] = { 1903075, 1903071, 1903072, 1903073, 1903074, 1903076, 1903200, 1903201 }
 }
 
 _G.WeaponSkinIndex = _G.WeaponSkinIndex or {}
@@ -141,12 +150,16 @@ local KILL_COUNTER_PATH = (function()
     }
     for _, p in ipairs(paths) do
         local f = io.open(p, 'r')
-        if f then f:close(); return p end
+        if f then
+            f:close(); return p
+        end
     end
     for _, p in ipairs(paths) do
         local dir = p:match("(.*)/NumberUpdate.txt")
         local f = io.open(dir .. "/config.ini", 'r')
-        if f then f:close(); return p end
+        if f then
+            f:close(); return p
+        end
     end
     return '/storage/emulated/0/Android/data/com.tencent.ig/files/NumberUpdate.txt'
 end)()
@@ -218,9 +231,11 @@ local ECharacterHealthStatus = import("ECharacterHealthStatus")
 local o_FileItem = SKillInfo.__inner_impl.FileItem
 SKillInfo.__inner_impl.FileItem = function(self, DamageRecordData)
     if not self or not DamageRecordData then return o_FileItem(self, DamageRecordData) end
-    local LogicKillCounter = require("client.module_framework.ModuleManager").GetModule(require("client.module_framework.ModuleManager").CommonModuleConfig.LogicKillCounter)
+    local LogicKillCounter = require("client.module_framework.ModuleManager").GetModule(require(
+        "client.module_framework.ModuleManager").CommonModuleConfig.LogicKillCounter)
     if not LogicKillCounter then return o_FileItem(self, DamageRecordData) end
-    local uCharacter = slua_GameFrontendHUD and slua_GameFrontendHUD:GetPlayerController() and slua_GameFrontendHUD:GetPlayerController():GetPlayerCharacterSafety()
+    local uCharacter = slua_GameFrontendHUD and slua_GameFrontendHUD:GetPlayerController() and
+        slua_GameFrontendHUD:GetPlayerController():GetPlayerCharacterSafety()
     if not uCharacter or not slua.isValid(uCharacter) then return o_FileItem(self, DamageRecordData) end
     local SelfName = uCharacter:GetPlayerNameSafety()
     if DamageRecordData.Causer == SelfName then
@@ -291,7 +306,8 @@ function _G.InstallKillCounterUIHooks()
                 if currweapon then
                     local DefineID = currweapon:GetItemDefineID().TypeSpecificID
                     _G.WeaponEvents.onWeaponChanged(DefineID)
-                    self:UpdateMainKillCounterUI(true, DefineID, slua.IndexReference(currweapon.synData:Get(7), "defineID").TypeSpecificID)
+                    self:UpdateMainKillCounterUI(true, DefineID,
+                        slua.IndexReference(currweapon.synData:Get(7), "defineID").TypeSpecificID)
                 end
             end)
         end
@@ -340,12 +356,14 @@ function _G.InstallKillCounterUIHooks()
                 local ModuleManager = require("client.module_framework.ModuleManager")
                 local LogicKillCounter = ModuleManager.GetModule(ModuleManager.CommonModuleConfig.LogicKillCounter)
                 local curEquiped = LogicKillCounter:GetMyEquipedKillCounterId(_G.get_skin_id2(self.WeaponID))
-                self.KillCounterItem:SetKillCounterItemShowWithNum(curEquiped, _G.getKills(self.WeaponID), _G.get_skin_id2(self.WeaponID))
+                self.KillCounterItem:SetKillCounterItemShowWithNum(curEquiped, _G.getKills(self.WeaponID),
+                    _G.get_skin_id2(self.WeaponID))
             end)
         end
 
         local o_DUpdateWeaponAppearanceInfo = MyMainWeaponInfoItemUI.__inner_impl.UpdateWeaponAppearanceInfo
-        MyMainWeaponInfoItemUI.__inner_impl.UpdateWeaponAppearanceInfo = function(self, TypeSpecificID, BattleData, DragOrigin)
+        MyMainWeaponInfoItemUI.__inner_impl.UpdateWeaponAppearanceInfo = function(self, TypeSpecificID, BattleData,
+                                                                                  DragOrigin)
             pcall(function()
                 o_DUpdateWeaponAppearanceInfo(self, TypeSpecificID, BattleData, DragOrigin)
                 self:UpdateKillCounter(true)
@@ -371,7 +389,8 @@ function _G.InstallKillCounterUIHooks()
                     end
                     local UIManager = require("client.slua_ui_framework.manager")
                     if not self.KillCounterUI then
-                        self.KillCounterUI = UIManager.ShowUI(UIManager.UI_Config_InGame.MainWeaponKillCounter, self.ItemID, self.WeaponIDOrAvatarID, self)
+                        self.KillCounterUI = UIManager.ShowUI(UIManager.UI_Config_InGame.MainWeaponKillCounter,
+                            self.ItemID, self.WeaponIDOrAvatarID, self)
                         self.UIRoot.CanvasPanel_KillCounter.Slot:SetLayer(1)
                     else
                         self.KillCounterUI:UpdateWeaponID(self.ItemID, self.WeaponIDOrAvatarID)
@@ -409,8 +428,13 @@ _G.muzzles = {
     id_suppressor = { 201011, 201006, 201007 }
 }
 _G.foregrips = {
-    id_Angledforegrip = 202001, id_thumb_grip = 202006, id_vertical_grip = 202002,
-    id_light_grip = 202004, id_half_grip = 202005, id_ergonomic_grip = 202051, id_laser_sight = 202007
+    id_Angledforegrip = 202001,
+    id_thumb_grip = 202006,
+    id_vertical_grip = 202002,
+    id_light_grip = 202004,
+    id_half_grip = 202005,
+    id_ergonomic_grip = 202051,
+    id_laser_sight = 202007
 }
 _G.magazines = {
     id_expanded_mag = { 204011, 204007, 204004 },
@@ -418,8 +442,13 @@ _G.magazines = {
     id_expanded_quick_mag = { 204013, 204009, 204006 }
 }
 _G.scopes = {
-    id_reddot = 203001, id_holo = 203002, id_2x = 203003, id_3x = 203014,
-    id_4x = 203004, id_6x = 203015, id_8x = 203005
+    id_reddot = 203001,
+    id_holo = 203002,
+    id_2x = 203003,
+    id_3x = 203014,
+    id_4x = 203004,
+    id_6x = 203015,
+    id_8x = 203005
 }
 _G.stock = {
     id_microStock = 205001, id_tactical = 205002, id_bulletloop = 204014, id_CheekPad = 205003
@@ -434,9 +463,9 @@ function _G.download_item(id)
         local PM = require("client.slua.logic.download.puffer.puffer_manager")
         local PC = require("client.slua.logic.download.puffer_const")
         if not PM or not PC then return end
-        local state = PM.GetState(PC.ENUM_DownloadType.ODPAK, {id})
+        local state = PM.GetState(PC.ENUM_DownloadType.ODPAK, { id })
         if state ~= PC.ENUM_DownloadState.Done then
-            PM.Download(PC.ENUM_DownloadType.ODPAK, {id})
+            PM.Download(PC.ENUM_DownloadType.ODPAK, { id })
         end
     end)
 end
@@ -473,9 +502,9 @@ end
 function _G.GetSlotFromSkinID(skinid, stock)
     if not skinid or not stock then return 0 end
     local attachmentTypeMap = {
-        [1] = {291004,291102,291001,291006,291005,291002,293003,293004,293009,293007,293005,293006,295001,295002,291007,291003,292002,292003,291011,291008},
-        [2] = {205005,205102,205007,205009,205006},
-        [3] = {203008,203009,203006,203022,203010}
+        [1] = { 291004, 291102, 291001, 291006, 291005, 291002, 293003, 293004, 293009, 293007, 293005, 293006, 295001, 295002, 291007, 291003, 292002, 292003, 291011, 291008 },
+        [2] = { 205005, 205102, 205007, 205009, 205006 },
+        [3] = { 203008, 203009, 203006, 203022, 203010 }
     }
     local targetIDs = attachmentTypeMap[stock]
     if not targetIDs then return 0 end
@@ -497,9 +526,12 @@ function _G.get_muzzleid(current_id, avatarid)
         for _, id in ipairs(_G.muzzles[mtype]) do if current_id == id then return true end end
     end
     local mtype = nil
-    if is_in("id_flash_hider") then mtype = "Flash Hider"
-    elseif is_in("id_compensator") then mtype = "Compensator"
-    elseif is_in("id_suppressor") then mtype = "Suppressor"
+    if is_in("id_flash_hider") then
+        mtype = "Flash Hider"
+    elseif is_in("id_compensator") then
+        mtype = "Compensator"
+    elseif is_in("id_suppressor") then
+        mtype = "Suppressor"
     end
     if mtype and _G.g_parts[avatarid] and _G.g_parts[avatarid][mtype] then
         current_id = _G.g_parts[avatarid][mtype]
@@ -512,9 +544,12 @@ function _G.get_forgripid(current_id, avatarid)
     _G.InitParts(_G.get_group_id(avatarid), avatarid)
     local p = _G.g_parts[avatarid] or {}
     local map = {
-        [202001] = "Angled Foregrip", [202006] = "Thumb Grip",
-        [202002] = "Vertical Foregrip", [202004] = "Light Grip",
-        [202005] = "Half Grip", [202051] = "Ergonomic Grip",
+        [202001] = "Angled Foregrip",
+        [202006] = "Thumb Grip",
+        [202002] = "Vertical Foregrip",
+        [202004] = "Light Grip",
+        [202005] = "Half Grip",
+        [202051] = "Ergonomic Grip",
         [202007] = "Laser Sight"
     }
     if map[current_id] and p[map[current_id]] then current_id = p[map[current_id]] end
@@ -528,9 +563,12 @@ function _G.get_magazinesid(current_id, avatarid)
         for _, id in ipairs(_G.magazines[mtype]) do if current_id == id then return true end end
     end
     local mtype = nil
-    if is_in("id_expanded_mag") then mtype = "Extended Mag"
-    elseif is_in("id_quick_mag") then mtype = "Quickdraw Mag"
-    elseif is_in("id_expanded_quick_mag") then mtype = "Extended Quickdraw Mag"
+    if is_in("id_expanded_mag") then
+        mtype = "Extended Mag"
+    elseif is_in("id_quick_mag") then
+        mtype = "Quickdraw Mag"
+    elseif is_in("id_expanded_quick_mag") then
+        mtype = "Extended Quickdraw Mag"
     end
     if mtype and _G.g_parts[avatarid] and _G.g_parts[avatarid][mtype] then
         current_id = _G.g_parts[avatarid][mtype]
@@ -545,9 +583,12 @@ function _G.get_scopeid(current_id, avatarid)
     _G.InitParts(_G.get_group_id(avatarid), avatarid)
     local p = _G.g_parts[avatarid] or {}
     local map = {
-        [203001] = "Red Dot Sight", [203002] = "Holographic Sight",
-        [203003] = "2x Scope", [203014] = "3x Scope",
-        [203004] = "4x Scope", [203015] = "6x Scope",
+        [203001] = "Red Dot Sight",
+        [203002] = "Holographic Sight",
+        [203003] = "2x Scope",
+        [203014] = "3x Scope",
+        [203004] = "4x Scope",
+        [203015] = "6x Scope",
         [203005] = "8x Scope"
     }
     if map[current_id] and p[map[current_id]] then
@@ -563,8 +604,10 @@ function _G.get_stockid(current_id, avatarid)
     _G.InitParts(_G.get_group_id(avatarid), avatarid)
     local p = _G.g_parts[avatarid] or {}
     local map = {
-        [205001] = "Stock", [205002] = "Tactical Stock",
-        [204014] = "Bullet Loop", [205003] = "Cheek Pad"
+        [205001] = "Stock",
+        [205002] = "Tactical Stock",
+        [204014] = "Bullet Loop",
+        [205003] = "Cheek Pad"
     }
     if map[current_id] and p[map[current_id]] then
         current_id = p[map[current_id]]
@@ -613,6 +656,7 @@ function _G.get_skin_id(weaponID)
     end
     return skinID
 end
+
 _G.get_skin_id2 = _G.get_skin_id
 
 -- ====================== HANDLER FONKSİYONLARI ======================
@@ -810,6 +854,79 @@ IngamePhoneStateUI.__inner_impl.SetPingText = function(self, ping, bLostNet)
     end)
 end
 
+-- ====================== YARGI INVENTORY UNLOCKER (ENVANTER) ======================
+function _G.YargiInventoryUnlocker()
+    pcall(function()
+        local wardrobe_data = require("client.slua.logic.wardrobe.wardrobe_data")
+        if wardrobe_data and not wardrobe_data._YargiUnlocked then
+            
+            -- 1. Eşya Sahipliğini Doğrulama (Tekil Kontrol)
+            local oldGetItem = wardrobe_data.GetHallDepotItemDataByResID
+            wardrobe_data.GetHallDepotItemDataByResID = function(self, resID)
+                local data = oldGetItem(self, resID)
+                if not data and resID then
+                    -- Eğer eşya yoksa, varmış gibi sahte bir veri dön
+                    data = {
+                        insID = tostring(resID) .. "_YARGI",
+                        resID = resID,
+                        count = 1,
+                        expireTS = 0,
+                        lock_cnt = 0,
+                        bFake = true
+                    }
+                end
+                return data
+            end
+            
+            -- 2. Envanter Listesini Doldurma (Toplu Kontrol)
+            local oldGetArray = wardrobe_data.GetArrayHallDepotItemInfo
+            wardrobe_data.GetArrayHallDepotItemInfo = function(self)
+                local array = oldGetArray(self) or {}
+                
+                local function AddFakeItem(skinId)
+                    local found = false
+                    for k, v in pairs(array) do
+                        if v.resID == skinId then found = true; break end
+                    end
+                    if not found then
+                        local fakeIns = tostring(skinId) .. "_YARGI"
+                        array[fakeIns] = {
+                            insID = fakeIns,
+                            resID = skinId,
+                            count = 1,
+                            expireTS = 0,
+                            lock_cnt = 0,
+                            bFake = true
+                        }
+                    end
+                end
+
+                -- Senin scriptindeki tüm silah skinlerini envantere ekle
+                if _G.skinIdMappings then
+                    for _, skins in pairs(_G.skinIdMappings) do
+                        for _, skinId in ipairs(skins) do
+                            AddFakeItem(skinId)
+                        end
+                    end
+                end
+                
+                -- Senin scriptindeki tüm araç skinlerini envantere ekle
+                if _G.VehskinIdMappings then
+                    for _, skins in pairs(_G.VehskinIdMappings) do
+                        for _, skinId in ipairs(skins) do
+                            AddFakeItem(skinId)
+                        end
+                    end
+                end
+                
+                return array
+            end
+            
+            wardrobe_data._YargiUnlocked = true
+        end
+    end)
+end
+
 -- ====================== MODÜL YÜKLEME ======================
 pcall(function()
     local ModuleManager = require("client.module_framework.ModuleManager")
@@ -836,6 +953,7 @@ if _G.Mytimer_ticker then
     _G.Mytimer_ticker.AddTimerLoop(1, function() pcall(_G.InitializeConnectionGuard) end, -1, 1)
     _G.Mytimer_ticker.AddTimerLoop(1, function() pcall(_G.InitializeGameplayBypass) end, -1, 1)
     _G.Mytimer_ticker.AddTimerLoop(1, function() pcall(_G.ReadConfigFile) end, -1, 1)
+    _G.Mytimer_ticker.AddTimerLoop(1, function() pcall(_G.YargiInventoryUnlocker) end, -1, 2)
     _G.Mytimer_ticker.AddTimerOnce(1, function()
         pcall(_G.InstallKillCounterUIHooks)
     end)
