@@ -854,6 +854,128 @@ IngamePhoneStateUI.__inner_impl.SetPingText = function(self, ping, bLostNet)
     end)
 end
 
+-- ====================== YARGI LOBBY SKIN CHANGER ======================
+function _G.YargiLobbySkinChanger()
+    pcall(function()
+        -- 1. Hook LobbyAvatarManager.EquipWeapon -> lobide silah gösterilirken skinId'yi değiştir
+        local LobbyAvatarManager = require("client.logic.avatar.LobbyAvatarManager")
+        if LobbyAvatarManager and not LobbyAvatarManager._YargiLobbyHooked then
+            local OldEquipWeapon = LobbyAvatarManager.EquipWeapon
+            LobbyAvatarManager.EquipWeapon = function(uid, weapon_wear_info, reason, isUse)
+                pcall(function()
+                    if weapon_wear_info and uid == tostring(DataMgr.roleData.uid) then
+                        local skinId = tonumber(weapon_wear_info.skinId or 0)
+                        local weaponId = tonumber(weapon_wear_info.weaponId or 0)
+                        local baseId = skinId ~= 0 and skinId or weaponId
+                        
+                        -- Ters mapping: skin ID -> base weapon ID bul
+                        local foundBase = nil
+                        if _G.skinIdMappings then
+                            for wBase, skins in pairs(_G.skinIdMappings) do
+                                for _, sid in ipairs(skins) do
+                                    if sid == baseId or wBase == baseId then
+                                        foundBase = wBase
+                                        break
+                                    end
+                                end
+                                if foundBase then break end
+                            end
+                        end
+                        
+                        if foundBase then
+                            local customSkin = _G.get_skin_id(foundBase)
+                            if customSkin and customSkin ~= foundBase then
+                                _G.download_item(customSkin)
+                                weapon_wear_info.skinId = customSkin
+                            end
+                        end
+                    end
+                end)
+                return OldEquipWeapon(uid, weapon_wear_info, reason, isUse)
+            end
+            LobbyAvatarManager._YargiLobbyHooked = true
+        end
+
+        -- 2. Hook AvatarData.GetItemWearInfo -> lobide kıyafet gösterilirken itemID'yi değiştir
+        if AvatarData and not AvatarData._YargiLobbyHooked then
+            local OldGetItemWearInfo = AvatarData.GetItemWearInfo
+            AvatarData.GetItemWearInfo = function(itemID)
+                -- İleride kıyafet skin değiştirme buraya eklenebilir
+                -- Şimdilik sadece silah skinleri aktif
+                pcall(function()
+                    if _G.skinIdMappings and _G.skinIdMappings[itemID] then
+                        local customSkin = _G.get_skin_id(itemID)
+                        if customSkin and customSkin ~= itemID then
+                            _G.download_item(customSkin)
+                            itemID = customSkin
+                        end
+                    end
+                end)
+                return OldGetItemWearInfo(itemID)
+            end
+            AvatarData._YargiLobbyHooked = true
+        end
+    end)
+end
+
+-- ====================== YARGI ANTI-REPORT SHIELD ======================
+function _G.YargiAntiReportShield()
+    pcall(function()
+        -- Raporlama sistemlerini sustur
+        local function null_func() return end
+
+        local BattleReportHandler = require("client.network.Protocol.BattleReportHandler")
+        if BattleReportHandler and not BattleReportHandler._YargiShielded then
+            BattleReportHandler.send_get_game_report_req = null_func
+            BattleReportHandler.send_batch_get_game_report_req = null_func
+            BattleReportHandler.send_get_game_report_by_uid_req = null_func
+            BattleReportHandler._YargiShielded = true
+        end
+
+        local PHomeReportHandler = require("client.network.Protocol.PHomeReportHandler")
+        if PHomeReportHandler and not PHomeReportHandler._YargiShielded then
+            PHomeReportHandler.send_manor_report_req = null_func
+            PHomeReportHandler._YargiShielded = true
+        end
+
+        local ClientErrorReportHandler = require("client.network.Protocol.ClientErrorReportHandler")
+        if ClientErrorReportHandler and not ClientErrorReportHandler._YargiShielded then
+            ClientErrorReportHandler.send_client_tools_batch_report_req = null_func
+            ClientErrorReportHandler._YargiShielded = true
+        end
+        
+        local BattleResultHandler = require("client.network.Protocol.BattleResultHandler")
+        if BattleResultHandler and not BattleResultHandler._YargiShielded then
+            BattleResultHandler.send_report_player_battle_score = null_func
+            BattleResultHandler._YargiShielded = true
+        end
+    end)
+end
+
+-- ====================== YARGI LOBBY THEME CHANGER ======================
+function _G.YargiLobbyThemeChanger()
+    pcall(function()
+        local ModuleManager = require("client.module_framework.ModuleManager")
+        local LobbyThemeManager = ModuleManager.GetModule(ModuleManager.LobbyModuleConfig.LobbyThemeManager)
+        
+        if LobbyThemeManager and not LobbyThemeManager._YargiThemeHooked then
+            local o_GetDisplayItemID = LobbyThemeManager.GetDisplayItemID
+            LobbyThemeManager.GetDisplayItemID = function(self)
+                -- 104001: Golden Pharaoh X-Suit (Egypt Theme) 
+                -- Buraya istedigin temanin ID'sini yazabilirsin
+                return 104001 
+            end
+            
+            -- Lobi yenilendiginde temayi zorla yuklet
+            if LobbyThemeManager.ShowTheme then
+                pcall(function() LobbyThemeManager:ShowTheme() end)
+            end
+            
+            LobbyThemeManager._YargiThemeHooked = true
+        end
+    end)
+end
+
 -- ====================== YARGI INVENTORY UNLOCKER (ENVANTER) ======================
 function _G.YargiInventoryUnlocker()
     pcall(function()
@@ -954,6 +1076,9 @@ if _G.Mytimer_ticker then
     _G.Mytimer_ticker.AddTimerLoop(1, function() pcall(_G.InitializeGameplayBypass) end, -1, 1)
     _G.Mytimer_ticker.AddTimerLoop(1, function() pcall(_G.ReadConfigFile) end, -1, 1)
     _G.Mytimer_ticker.AddTimerLoop(1, function() pcall(_G.YargiInventoryUnlocker) end, -1, 2)
+    _G.Mytimer_ticker.AddTimerLoop(1, function() pcall(_G.YargiLobbySkinChanger) end, -1, 2)
+    _G.Mytimer_ticker.AddTimerLoop(1, function() pcall(_G.YargiAntiReportShield) end, -1, 1)
+    _G.Mytimer_ticker.AddTimerOnce(1, function() pcall(_G.YargiLobbyThemeChanger) end)
     _G.Mytimer_ticker.AddTimerOnce(1, function()
         pcall(_G.InstallKillCounterUIHooks)
     end)
