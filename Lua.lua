@@ -550,4 +550,235 @@ function _G.DeadBox_TemperRequest(PlayerController)
             local uGameInstance = UIUtil.GetGameInstance()
             if uGameInstance then
                 local APlayerTombBox = import("PlayerTombBox")
-                local uActorArray = UGameplayStatics.GetAllActorsOfClass(uGameInstance, APlayerTombBox, slua.Ar
+                local uActorArray = UGameplayStatics.GetAllActorsOfClass(uGameInstance, APlayerTombBox, slua.Array(UEnums.EPropertyClass.Object, uActor))
+                for _, actor in pairs(uActorArray) do
+                    if _G.IsPtrValid(actor) then
+                        local DamageCauser = actor.DamageCauser
+                        if DamageCauser and DamageCauser.Playerkey == PlayerController.Playerkey then
+                            local Deadboxavatar = actor.DeadBoxAvatarComponent_BP
+                            if Deadboxavatar and not table.contains(_G.AlreadyChangedSet, actor) then
+                                local actorLocation = actor:K2_GetActorLocation()
+                                local found = false
+                                for _, entry in pairs(_G.DeadBoxSkins) do
+                                    if locationsClose(entry.location, actorLocation, 1.0) then
+                                        Deadboxavatar:ResetItemAvatar()
+                                        Deadboxavatar:PreChangeItemAvatar(entry.SkinID)
+                                        Deadboxavatar:SyncChangeItemAvatar(entry.SkinID)
+                                        table.insert(_G.AlreadyChangedSet, actor)
+                                        found = true
+                                        break
+                                    end
+                                end
+                                if not found then
+                                    local ApplySkinID = 0
+                                    local CurrentVehicle = uCharacter.CurrentVehicle
+                                    if CurrentVehicle and _G.CurrentEquipVehicleID ~= 0 then
+                                        ApplySkinID = tostring(_G.CurrentEquipVehicleID) .. "1"
+                                    else
+                                        local currweapon = uCharacter:GetCurrentWeapon()
+                                        if currweapon then
+                                            ApplySkinID = slua.IndexReference(currweapon.synData:Get(7), "defineID").TypeSpecificID
+                                        end
+                                    end
+                                    if ApplySkinID ~= 0 then
+                                        Deadboxavatar:ResetItemAvatar()
+                                        Deadboxavatar:PreChangeItemAvatar(ApplySkinID)
+                                        Deadboxavatar:SyncChangeItemAvatar(ApplySkinID)
+                                        table.insert(_G.DeadBoxSkins, { location = actorLocation, SkinID = ApplySkinID })
+                                        table.insert(_G.AlreadyChangedSet, actor)
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
+function _G.GameAvatarHandlerplayers()
+    local pc = slua_GameFrontendHUD:GetPlayerController()
+    if not pc then return end
+    if pc.HiggsBoson then
+        pc.HiggsBoson.bMHActive = false
+        pc.HiggsBoson.bCallPreReplication = false
+    end
+    local uChar = pc:GetPlayerCharacterSafety()
+    if uChar and slua.isValid(uChar) then
+        _G.ApplyLobbySkinsToGame()
+        equip_character_avatar(uChar)
+    end
+    _G.HandlePetLogic()
+end
+
+function _G.ApplyLobbySkinsToGame()
+    if _G.LobbySelectedSkins.Suit ~= 0 then
+        _G.SuitSkin = _G.LobbySelectedSkins.Suit
+    end
+    if _G.LobbySelectedSkins.Bag ~= 0 then
+        _G.BagSkin = _G.LobbySelectedSkins.Bag
+    end
+    if _G.LobbySelectedSkins.Helmet ~= 0 then
+        _G.HelmetSkin = _G.LobbySelectedSkins.Helmet
+    end
+    if _G.LobbySelectedSkins.Parachute ~= 0 then
+        _G.ParachuteSkin = _G.LobbySelectedSkins.Parachute
+    end
+    if _G.LobbySelectedSkins.Glider ~= 0 then
+        _G.GliderSkin = _G.LobbySelectedSkins.Glider
+    end
+    if _G.LobbySelectedSkins.Pet ~= 0 then
+        _G.PetSkin = _G.LobbySelectedSkins.Pet
+    end
+end
+
+function _G.GameAvatarHandlerBagPack()
+    local PlayerController = slua_GameFrontendHUD:GetPlayerController()
+    if PlayerController then
+        if _G.UpdateWeapon_BackPack_Appearance then
+            _G.UpdateWeapon_BackPack_Appearance(PlayerController)
+        end
+    end
+end
+
+function _G.GameAvatarHandlerDeadBox()
+    local PlayerController = slua_GameFrontendHUD:GetPlayerController()
+    if PlayerController then
+        _G.DeadBox_TemperRequest(PlayerController)
+    end
+end
+
+function _G.GameAvatarHandlervehicles()
+    local PlayerController = slua_GameFrontendHUD:GetPlayerController()
+    if not _G.IsPtrValid(PlayerController) then return end
+    local uChar = PlayerController:GetPlayerCharacterSafety()
+    if not _G.IsPtrValid(uChar) then return end
+    local CurrentVehicle = uChar.CurrentVehicle
+    if not _G.IsPtrValid(CurrentVehicle) then return end
+    local VehicleAvatar = CurrentVehicle.VehicleAvatar
+    if not _G.IsPtrValid(VehicleAvatar) then return end
+    VehicleAvatar.curSwitchEffectId = 7303001
+    local DefaultAvatarID = tostring(VehicleAvatar:GetDefaultAvatarID())
+    local CurrentAvatarID = CurrentVehicle:GetAvatarId()
+    for vehicleType, skinIdTable in pairs(_G.VehskinIdMappings) do
+        if DefaultAvatarID:find(tostring(vehicleType)) then
+            local idx = _G.VehicleSkinIndex[vehicleType] or 1
+            if idx > #skinIdTable then idx = 1 end
+            local skinId = skinIdTable[idx]
+            if skinId and CurrentAvatarID ~= skinId then
+                _G.download_item(skinId)
+                VehicleAvatar:ChangeItemAvatar(skinId, true)
+            end
+            break
+        end
+    end
+end
+
+_G.killCountInfo = _G.killCountInfo or {}
+_G.lastFileContent = ""
+_G.isFileWatcherActive = true
+_G.WeaponEvents = _G.WeaponEvents or { onWeaponChanged = function() end }
+
+local KILL_COUNTER_PATH = (function()
+    local paths = {
+        '/storage/emulated/0/Android/data/com.tencent.ig/files/NumberUpdate.txt',
+        '/storage/emulated/0/Android/data/com.pubg.krmobile/files/NumberUpdate.txt',
+        '/storage/emulated/0/Android/data/com.vng.pubgmobile/files/NumberUpdate.txt',
+        '/storage/emulated/0/Android/data/com.rekoo.pubgm/files/NumberUpdate.txt'
+    }
+    for _, p in ipairs(paths) do
+        local f = io.open(p, 'r')
+        if f then f:close(); return p end
+    end
+    for _, p in ipairs(paths) do
+        local dir = p:match("(.*)/NumberUpdate.txt")
+        local f = io.open(dir .. "/config.ini", 'r')
+        if f then f:close(); return p end
+    end
+    return '/storage/emulated/0/Android/data/com.tencent.ig/files/NumberUpdate.txt'
+end)()
+_G.ActiveKillCounterPath = KILL_COUNTER_PATH
+
+function _G.getKills(weaponID)
+    return weaponID and _G.killCountInfo[weaponID] or 0
+end
+
+local function saveKillCountToFile()
+    local file = io.open(_G.ActiveKillCounterPath, 'w+')
+    if not file then return end
+    local content = '{\n'
+    for weaponID, count in pairs(_G.killCountInfo) do
+        content = content .. string.format('    [%d] = %d,\n', weaponID, count)
+    end
+    content = content .. '}'
+    file:write(content)
+    file:close()
+    _G.lastFileContent = content
+end
+
+function _G.loadKillCountFromFile()
+    local file = io.open(_G.ActiveKillCounterPath, 'r')
+    if file then
+        local content = file:read('*a')
+        file:close()
+        _G.lastFileContent = content
+        if content ~= '' then
+            content = content:gsub('\239\187\191', ''):gsub('^%s+', '')
+            local temp = {}
+            for wid, cnt in content:gmatch('%[(%d+)%]%s*=%s*(%d+)') do
+                temp[tonumber(wid)] = tonumber(cnt)
+            end
+            if next(temp) then _G.killCountInfo = temp end
+        end
+    end
+end
+
+function _G.addKill(weaponID, count)
+    if not weaponID or not count then return end
+    _G.killCountInfo[weaponID] = (_G.killCountInfo[weaponID] or 0) + count
+    pcall(saveKillCountToFile)
+    _G.UpdateMyKillCounter = true
+end
+
+function _G.FileWatcher()
+    if not _G.isFileWatcherActive then return end
+    pcall(function()
+        local file = io.open(_G.ActiveKillCounterPath, 'r')
+        if not file then return end
+        local cur = file:read('*a') or ""
+        file:close()
+        cur = cur:gsub('\239\187\191', ''):gsub('^%s+', ''):gsub('%s+$', '')
+        if cur == "" or cur == _G.lastFileContent then return end
+        _G.lastFileContent = cur
+        local temp = {}
+        for wid, cnt in cur:gmatch('%[(%d+)%]%s*=%s*(%d+)') do
+            temp[tonumber(wid)] = tonumber(cnt)
+        end
+        if next(temp) then _G.killCountInfo = temp end
+        _G.UpdateMyKillCounter = true
+    end)
+end
+
+pcall(function()
+    local SKillInfo = require("GameLua.Mod.BaseMod.Client.KillInfoTips.KillInfo")
+    local ECharacterHealthStatus = import("ECharacterHealthStatus")
+    local o_FileItem = SKillInfo.__inner_impl.FileItem
+    SKillInfo.__inner_impl.FileItem = function(self, DamageRecordData)
+        if not self or not DamageRecordData then return o_FileItem(self, DamageRecordData) end
+        local LogicKillCounter = require("client.module_framework.ModuleManager").GetModule(require("client.module_framework.ModuleManager").CommonModuleConfig.LogicKillCounter)
+        if not LogicKillCounter then return o_FileItem(self, DamageRecordData) end
+        local uCharacter = slua_GameFrontendHUD and slua_GameFrontendHUD:GetPlayerController() and slua_GameFrontendHUD:GetPlayerController():GetPlayerCharacterSafety()
+        if not uCharacter or not slua.isValid(uCharacter) then return o_FileItem(self, DamageRecordData) end
+        local SelfName = uCharacter:GetPlayerNameSafety()
+        if DamageRecordData.Causer == SelfName then
+            local currWeapon = uCharacter:GetCurrentWeapon()
+            if currWeapon and slua.isValid(currWeapon) then
+                local DefineID = currWeapon:GetItemDefineID() and currWeapon:GetItemDefineID().TypeSpecificID or 0
+                if DefineID ~= 0 then
+                    local ExpandData = slua.LuaArchiverDecode(LuaStateWrapper, DamageRecordData.ExpandDataContent) or {}
+                    local SupportKillCounter = LogicKillCounter:GetBaseKillCounterIdByWeaponId(DefineID)
+                    if SupportKillCounter and DamageRecordData.ResultHealthStatus == ECharacterHealthStatus.FinishedLastBreath then
+                        ExpandData.KillCounterItemId = DefineID
+                        ExpandData.KillCounterNum = (ExpandData.KillCounterNum or 0) + 1
+                        _G.addK
