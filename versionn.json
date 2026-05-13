@@ -1,6 +1,6 @@
 {
   "version": "4.7",
-  "maintenance": false,
+  "maintenance": true,
   "maintenance_message": "Bakım çalışması var.",
   "kill_switch": false,
   "kill_message": "Bu sürüm fixlendi! Lütfen yenisini indirin.",
