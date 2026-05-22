@@ -1,8 +1,29 @@
-{
-  "version": "4.76",
-  "maintenance": true,
-  "maintenance_message": "Bakım çalışması var.",
-  "kill_switch": false,
-  "kill_message": "Bu sürüm fixlendi! Lütfen yenisini indirin.",
-  "message": "FUCK YOU GAY 😂😂"
-}
+ "app_config": {
+    "version_name": "1.0",
+    "apk_url": "https://github.com/SanalOwnerTR/Onlinemod/raw/main/app-debug.apk",
+    "global_msg": "YARGI ENGINE Online!"
+  },
+  "pubg": {
+    "maintenance": false,
+    "lib_version": "1.0",
+    "lib_url": "https://github.com/SanalOwnerTR/Onlinemod/raw/main/libmono.so",
+    "msg": "PUBG Bypass Updated!"
+  },
+  "dfm": {
+    "maintenance": false,
+    "lib_version": "1.0",
+    "lib_url": "https://github.com/SanalOwnerTR/Onlinemod/raw/main/libdfm.so",
+    "msg": "DFM Injector is Ready!"
+  },
+  "dfm_garena": {
+    "maintenance": false,
+    "lib_version": "1.0",
+    "lib_url": "https://github.com/SanalOwnerTR/Onlinemod/raw/main/libdfm_garena.so",
+    "msg": "Garena Version Stable"
+  },
+  "dfm_china": {
+    "maintenance": true,
+    "lib_version": "1.5",
+    "lib_url": "https://github.com/SanalOwnerTR/Onlinemod/raw/main/libdfm_china.so",
+    "msg": "China Version is under maintenance!"
+  }
