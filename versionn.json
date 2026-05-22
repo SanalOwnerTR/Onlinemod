@@ -4,7 +4,7 @@
     "global_msg": "YARGI ENGINE Online!"
   },
   "pubg": {
-    "maintenance": false,
+    "maintenance": true,
     "lib_version": "1.0",
     "lib_url": "https://github.com/SanalOwnerTR/Onlinemod/raw/main/libmono.so",
     "msg": "PUBG Bypass Updated!"
