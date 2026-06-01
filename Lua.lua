@@ -1,7 +1,12 @@
+--[[
+    YargiEngine - PUBG Mobile Cosmetic Engine
+    Lobby + Match | Instant config refresh | Backpack skin coating
+    Excluded: Plane skin, Foot effect, Backpack charm
+]]
 
 _G.YargiEngine = _G.YargiEngine or {}
 _G.YargiEngine.Loaded = false
-_G.YargiEngine.Version = "2.2"
+_G.YargiEngine.Version = "2.3"
 
 local Yargi = {}
 
@@ -70,6 +75,11 @@ _G.OutfitSkins = {
     LastKill = {6114302174,6114302175,6114302176,6114302177,6114302178},
     FinalKill = {6114302174,6114302180,6114302181,6114302182,6114302183},
     VehicleEffect = {7303001,7303002,7303003,7303004,7303005}
+}
+
+_G.LobbyThemeSkins = _G.LobbyThemeSkins or {
+    202408001, 202408002, 202408003, 202407001, 202406001, 202405001,
+    202404001, 202403001, 202402001, 202401001, 202312001, 202311001
 }
 
 _G.SuitSkinsMap = _G.OutfitSkins.Suit
@@ -395,7 +405,8 @@ local OUTFIT_CONFIG = {
 function Yargi.applyOutfitKey(key, globalKey, mapKey, newConfig, changed)
     if newConfig[key] == nil then return end
     if newConfig[key] ~= lastConfig[key] then
-        _G[globalKey] = Yargi.pickFromMap(_G.OutfitSkins[mapKey], newConfig[key])
+        local list = _G[mapKey] or _G.OutfitSkins[mapKey]
+        _G[globalKey] = Yargi.pickFromMap(list, newConfig[key])
         lastConfig[key] = newConfig[key]
         changed.outfit = true
     end
@@ -1394,6 +1405,36 @@ Yargi.fakeResSet = {}
 Yargi.wardrobeHooksInstalled = false
 Yargi.depotInjectReady = false
 Yargi.FAKE_INS_BASE = 8800000000
+Yargi.lastDepotInject = 0
+Yargi.lastArmoryRebuild = 0
+
+function Yargi.isInLobby()
+    local ok, ret = pcall(function()
+        local GameStatus = require("client.logic.gamestatus.GameStatus")
+        return GameStatus and GameStatus.IsInLobbyOrMainCity and GameStatus.IsInLobbyOrMainCity()
+    end)
+    return ok and ret == true
+end
+
+function Yargi.getNetOkRes()
+    if NetErrorCode_NONE ~= nil then return NetErrorCode_NONE end
+    return "ok"
+end
+
+function Yargi.applySkinsNow()
+    pcall(function()
+        if Yargi.isInLobby() then
+            _G.Lobby_Avatar_Handler()
+        else
+            _G.GameAvatarHandlerplayers()
+            _G.HandlePetLogic()
+            _G.GameAvatarHandlerweapons()
+            _G.GameAvatarHandlerBagPack()
+            local pc = slua_GameFrontendHUD and slua_GameFrontendHUD:GetPlayerController()
+            if _G.IsPtrValid(pc) then _G.UpdateWeapon_BackPack_Appearance(pc, true) end
+        end
+    end)
+end
 
 function Yargi.isFakeIns(insID)
     insID = tonumber(insID)
@@ -1460,6 +1501,16 @@ function Yargi.registerAllFakeItems()
     for _, skins in pairs(_G.VehskinIdMappings) do
         for _, resID in ipairs(skins) do Yargi.registerFakeResID(resID) end
     end
+    if _G.LobbyThemeSkins then
+        for _, resID in ipairs(_G.LobbyThemeSkins) do Yargi.registerFakeResID(resID) end
+    end
+end
+
+function Yargi.ensureDepotInjected()
+    local now = os.clock()
+    if Yargi.depotInjectReady and (now - (Yargi.lastDepotInject or 0)) < 8 then return end
+    Yargi.injectFakeItemsToDepot()
+    Yargi.lastDepotInject = now
 end
 
 function Yargi.getFakeDepotByInsID(insID)
@@ -1582,7 +1633,7 @@ function Yargi.syncWeaponFromResId(weaponId, skinResId)
     end
     Yargi.resetApplyCaches()
     _G.UpdateMyKillCounter = true
-    _G.RefreshAllSkins()
+    Yargi.applySkinsNow()
 end
 
 function Yargi.syncOutfitFromResId(resID)
@@ -1590,31 +1641,52 @@ function Yargi.syncOutfitFromResId(resID)
     if not resID or resID == 0 then return end
     for _, entry in ipairs(OUTFIT_CONFIG) do
         local key, globalKey, mapKey = entry[1], entry[2], entry[3]
-        local list = _G.OutfitSkins[mapKey]
+        local list = _G[mapKey] or _G.OutfitSkins[mapKey]
         if list then
             for i, id in ipairs(list) do
                 if id == resID then
                     _G[globalKey] = resID
                     Yargi.writeConfigValue(key, i - 1)
                     Yargi.resetApplyCaches()
-                    _G.RefreshAllSkins()
+                    Yargi.applySkinsNow()
+                    if key == "LobbyTheme" or (_G.TargetLobbyThemeID and resID == _G.TargetLobbyThemeID) then
+                        _G.TargetLobbyThemeID = resID
+                        _G.LastAppliedThemeID = nil
+                        _G.ApplyLobbyTheme()
+                    end
                     return
                 end
             end
         end
     end
-    local CDataTable = require("client.slua.config.ClientConfig.data_mgr")
-    local itemCfg = CDataTable.GetTableData("Item", resID)
-    if itemCfg and itemCfg.WardrobeMainTab then
+    if _G.LobbyThemeSkins then
+        for _, tid in ipairs(_G.LobbyThemeSkins) do
+            if tid == resID then
+                _G.TargetLobbyThemeID = resID
+                _G.LastAppliedThemeID = nil
+                Yargi.writeConfigValue("LobbyTheme", resID)
+                _G.ApplyLobbyTheme()
+                return
+            end
+        end
+    end
+    pcall(function()
+        local CDataTable = require("client.slua.config.ClientConfig.data_mgr")
+        local itemCfg = CDataTable.GetTableData("Item", resID)
+        if not itemCfg then return end
         if itemCfg.WardrobeMainTab == 1 or (itemCfg.ItemSubType and itemCfg.ItemSubType >= 400) then
             _G.SuitSkin = resID
             Yargi.resetApplyCaches()
-            _G.RefreshAllSkins()
+            Yargi.applySkinsNow()
+        elseif itemCfg.ItemType and ENUM_ITEM_TYPE and itemCfg.ItemType == ENUM_ITEM_TYPE.Hall_Theme then
+            _G.TargetLobbyThemeID = resID
+            _G.LastAppliedThemeID = nil
+            _G.ApplyLobbyTheme()
         end
-    end
+    end)
 end
 
-function Yargi.injectArmorySkinList()
+function Yargi.injectArmorySkinList(heavy)
     pcall(function()
         Yargi.registerAllFakeItems()
         local ArmorySystem = require("client.logic.armory.logic_armory")
@@ -1626,58 +1698,115 @@ function Yargi.injectArmorySkinList()
             if not skin_list[baseId] then skin_list[baseId] = {} end
             for _, skinId in ipairs(skins) do
                 if skinId ~= baseId then
-                    if not skin_list[baseId][skinId] then
-                        skin_list[baseId][skinId] = { is_open = 1 }
-                    else
-                        skin_list[baseId][skinId].is_open = 1
-                    end
+                    skin_list[baseId][skinId] = skin_list[baseId][skinId] or { is_open = 1 }
+                    skin_list[baseId][skinId].is_open = 1
                     Yargi.registerFakeResID(skinId)
                 end
             end
         end
-        if ArmorySystem.ContructResIdToWardrobeInsID then
-            ArmorySystem.ContructResIdToWardrobeInsID()
+        if heavy then
+            if ArmorySystem.ContructResIdToWardrobeInsID then
+                ArmorySystem.ContructResIdToWardrobeInsID()
+            end
+            if ArmorySystem.ReBuildInitData then
+                ArmorySystem.ReBuildInitData(ArmorySystem.rsp_list)
+            end
+            local wardrobeGunLogic = require("client.slua.logic.wardrobe.logic_wardrobe_gun")
+            if wardrobeGunLogic and wardrobeGunLogic.OnGunSkinListRes then
+                wardrobeGunLogic:OnGunSkinListRes()
+            end
+            pcall(function()
+                EventSystem:postEvent(EVENTTYPE_WARDROBE, EVENTID_WARDROBE_UPDATE_GUN_LIST, -1)
+            end)
+            Yargi.lastArmoryRebuild = os.clock()
         end
-        if ArmorySystem.ReBuildInitData then
-            ArmorySystem.ReBuildInitData(ArmorySystem.rsp_list)
-        end
-        local wardrobeGunLogic = require("client.slua.logic.wardrobe.logic_wardrobe_gun")
-        if wardrobeGunLogic and wardrobeGunLogic.OnGunSkinListRes then
-            wardrobeGunLogic:OnGunSkinListRes()
-        end
-        pcall(function()
-            EventSystem:postEvent(EVENTTYPE_WARDROBE, EVENTID_WARDROBE_UPDATE_GUN_LIST, -1)
-        end)
     end)
+end
+
+function Yargi.localEquipOutfit(fake, insID, extra)
+    Yargi.ensureDepotInjected()
+    local resOK = Yargi.getNetOkRes()
+    local item = {
+        res_id = fake.resID,
+        resID = fake.resID,
+        count = fake.count or 1,
+        color = fake.colorID or 0,
+        pattern = fake.patternID or 0,
+        instid = insID,
+        insID = insID
+    }
+    local WardRobeHandler = require("client.network.Protocol.WardRobeHandler")
+    WardRobeHandler.on_depot_put_on_rsp(resOK, item, nil, 1, insID, 0, extra)
+
+    pcall(function()
+        local CDataTable = require("client.slua.config.ClientConfig.data_mgr")
+        local itemCfg = CDataTable.GetTableData("Item", fake.resID)
+        if not itemCfg then return end
+        local WardrobeAvatarLogic = require("client.slua.logic.wardrobe.logic_wardrobe_avatar")
+        local displayResID = fake.resID
+        local LogicXSuit = require("client.slua.logic.XSuit.logic_xsuit")
+        if LogicXSuit and LogicXSuit.IsXSuit and LogicXSuit.IsXSuit(fake.resID) then
+            displayResID = LogicXSuit.GetItemShowID(insID) or fake.resID
+        end
+        if WardrobeAvatarLogic.AddToWearInfo then
+            WardrobeAvatarLogic:AddToWearInfo(itemCfg.ItemSubType, insID, fake.resID, 0, 0)
+        end
+        if itemCfg.ItemType and ENUM_ITEM_TYPE and itemCfg.ItemType == ENUM_ITEM_TYPE.Hall_Theme then
+            _G.TargetLobbyThemeID = fake.resID
+            _G.LastAppliedThemeID = nil
+            local HallThemeUtils = require("client.logic.lobby.hall_theme_utils")
+            if HallThemeUtils and HallThemeUtils.ProcPutOnHallTheme then
+                HallThemeUtils.ProcPutOnHallTheme(item, nil)
+            end
+            _G.ApplyLobbyTheme()
+        elseif itemCfg.itemSubType == ENUM_ITEM_SUBTYPE.Helmet or (ENUM_ITEM_SUBTYPE.Helmet_NoLevel and itemCfg.itemSubType == ENUM_ITEM_SUBTYPE.Helmet_NoLevel) then
+            local HallThemeUtils = require("client.logic.lobby.hall_theme_utils")
+            if HallThemeUtils and HallThemeUtils.ProcPutOnHelmet then HallThemeUtils.ProcPutOnHelmet(item, nil) end
+            if DataMgr and DataMgr.UpdateEquipmentSkin then DataMgr.UpdateEquipmentSkin(itemCfg.ItemSubType, insID) end
+        elseif itemCfg.itemSubType == ENUM_ITEM_SUBTYPE.Upgrade_Backpack or itemCfg.itemSubType == ENUM_ITEM_SUBTYPE.Backpack then
+            local HallThemeUtils = require("client.logic.lobby.hall_theme_utils")
+            if HallThemeUtils and HallThemeUtils.ProcPutOnBagSkin then HallThemeUtils.ProcPutOnBagSkin(item, nil) end
+            if DataMgr and DataMgr.UpdateEquipmentSkin then DataMgr.UpdateEquipmentSkin(itemCfg.ItemSubType, insID) end
+        else
+            if DataMgr and DataMgr.UpdateRoleWearData then DataMgr.UpdateRoleWearData(insID, 0) end
+            WardrobeAvatarLogic:AvatarChange(displayResID, true, item.color, item.pattern)
+        end
+    end)
+
+    Yargi.syncOutfitFromResId(fake.resID)
+    return true
 end
 
 function Yargi.localPutOnItem(insID, extra)
     local fake = Yargi.getFakeDepotByInsID(insID)
     if not fake then return false end
-    Yargi.injectFakeItemsToDepot()
-    local item = { res_id = fake.resID, count = fake.count or 1 }
-    local WardRobeHandler = require("client.network.Protocol.WardRobeHandler")
-    WardRobeHandler.on_depot_put_on_rsp(0, item, nil, 1, insID, 0, extra)
-    Yargi.syncOutfitFromResId(fake.resID)
-    return true
+    return Yargi.localEquipOutfit(fake, insID, extra)
 end
 
 function Yargi.localInstallWeaponSkin(client_data, weapon_id, instanceID)
     local fake = Yargi.getFakeDepotByInsID(instanceID)
     if not fake then return false end
-    Yargi.injectFakeItemsToDepot()
+    Yargi.ensureDepotInjected()
     local ArmoryHandler = require("client.network.Protocol.ArmoryHandler")
     ArmoryHandler.on_install_weapon_skin_rsp(client_data, 0, weapon_id, instanceID)
     Yargi.syncWeaponFromResId(weapon_id, fake.resID)
     return true
 end
 
-function Yargi.realtimeWardrobeTick()
+function Yargi.wardrobeMaintainTick()
     if not Yargi.wardrobeHooksInstalled then
         Yargi.InstallWardrobeHooks()
+        return
     end
-    Yargi.injectFakeItemsToDepot()
-    Yargi.injectArmorySkinList()
+    if not Yargi.isInLobby() then return end
+    local now = os.clock()
+    if not Yargi.depotInjectReady or (now - (Yargi.lastDepotInject or 0)) > 20 then
+        Yargi.injectFakeItemsToDepot()
+        Yargi.lastDepotInject = now
+    end
+    if (now - (Yargi.lastArmoryRebuild or 0)) > 25 then
+        Yargi.injectArmorySkinList(true)
+    end
 end
 
 function Yargi.InstallWardrobeHooks()
@@ -1690,8 +1819,9 @@ function Yargi.InstallWardrobeHooks()
         local o_InitDepot = wardrobe_data.InitHallDepotData
         wardrobe_data.InitHallDepotData = function(self, arrayItemDataPackage)
             o_InitDepot(self, arrayItemDataPackage)
+            Yargi.depotInjectReady = false
             Yargi.injectFakeItemsToDepot()
-            Yargi.injectArmorySkinList()
+            Yargi.injectArmorySkinList(true)
         end
 
         local o_GetByIns = wardrobe_data.GetHallDepotItemDataByInsID
@@ -1744,7 +1874,7 @@ function Yargi.InstallWardrobeHooks()
 
         local o_GetArray = wardrobe_data.GetArrayHallDepotItemInfo
         wardrobe_data.GetArrayHallDepotItemInfo = function(self, DataSource)
-            Yargi.injectFakeItemsToDepot()
+            if not Yargi.depotInjectReady then Yargi.ensureDepotInjected() end
             local data = o_GetArray(self, DataSource)
             if not data then data = {} end
             for insID, item in pairs(Yargi.fakeDepot) do
@@ -1756,6 +1886,12 @@ function Yargi.InstallWardrobeHooks()
         end
 
         local WardrobeLogic = require("client.slua.logic.wardrobe.logic_wardrobe_new")
+
+        local o_PutonReq = WardrobeLogic.wardrobe_puton_req
+        WardrobeLogic.wardrobe_puton_req = function(self, insID, extra)
+            if Yargi.localPutOnItem(insID, extra) then return end
+            return o_PutonReq(self, insID, extra)
+        end
 
         local o_GetInsByRes = WardrobeLogic.GetWardrobeInsIdByResId
         WardrobeLogic.GetWardrobeInsIdByResId = function(self, resid)
@@ -1796,8 +1932,8 @@ function Yargi.InstallWardrobeHooks()
 
         local o_GunListReq = WardrobeGunLogic.GetGunSkinListReq
         WardrobeGunLogic.GetGunSkinListReq = function(self)
-            Yargi.injectFakeItemsToDepot()
-            Yargi.injectArmorySkinList()
+            Yargi.ensureDepotInjected()
+            Yargi.injectArmorySkinList(false)
             return o_GunListReq(self)
         end
 
@@ -1806,14 +1942,12 @@ function Yargi.InstallWardrobeHooks()
             gunID = gunID or self:GetGunID()
             if gunID == 0 then gunID = self:GetKeepGunID() end
             skinList = Yargi.mergeGunSkinList(gunID, skinList)
-            Yargi.injectFakeItemsToDepot()
             return o_GetSkinList(self, skinList, sortViaTime, gunID, DataSource, tExtraData)
         end
 
         local o_GetAllSkins = WardrobeGunLogic.GetAllWeaponSkinList
         WardrobeGunLogic.GetAllWeaponSkinList = function(self, skinList, sortViaTime, bFilterTime, bFilterDiy, bFilterLock, bIgnoreSort)
             skinList = Yargi.mergeAllWeaponSkinMap(skinList)
-            Yargi.injectFakeItemsToDepot()
             return o_GetAllSkins(self, skinList, sortViaTime, bFilterTime, bFilterDiy, bFilterLock, bIgnoreSort)
         end
 
@@ -1845,7 +1979,7 @@ function Yargi.InstallWardrobeHooks()
             else
                 if not ArmorySystem.rsp_list then ArmorySystem.rsp_list = {} end
             end
-            Yargi.injectArmorySkinList()
+            Yargi.injectArmorySkinList(true)
         end
 
         local o_InstallSkin = ArmorySystem.install_weapon_skin
@@ -1871,7 +2005,8 @@ function Yargi.InstallWardrobeHooks()
         local o_OnPutOnRsp = WardrobeLogic.on_puton_rsp
         WardrobeLogic.on_puton_rsp = function(self, res, item, olditem, index, extra)
             o_OnPutOnRsp(self, res, item, olditem, index, extra)
-            if item and (res == 0 or res == "ok" or (NetErrorCode_NONE and res == NetErrorCode_NONE)) then
+            local resOK = Yargi.getNetOkRes()
+            if item and (res == resOK or res == 0 or res == "ok") then
                 local resId = item.res_id or item.resID
                 if resId then Yargi.syncOutfitFromResId(resId) end
             end
@@ -1897,7 +2032,7 @@ function Yargi.InstallWardrobeHooks()
         end
 
         Yargi.injectFakeItemsToDepot()
-        Yargi.injectArmorySkinList()
+        Yargi.injectArmorySkinList(true)
         Yargi.wardrobeHooksInstalled = true
     end)
     if not ok then
@@ -1932,26 +2067,33 @@ local TXtime_ticker = require("common.time_ticker")
 _G.Mytimer_ticker = TXtime_ticker
 
 if _G.Mytimer_ticker then
-    _G.Mytimer_ticker.AddTimerLoop(0, function() pcall(_G.GameAvatarHandlerweapons) end, -1, 0.10)
-    _G.Mytimer_ticker.AddTimerLoop(0, function() pcall(_G.GameAvatarHandlerBagPack) end, -1, 0.10)
-    _G.Mytimer_ticker.AddTimerLoop(0, function() pcall(_G.GameAvatarHandlervehicles) end, -1, 0.10)
-    _G.Mytimer_ticker.AddTimerLoop(0, function() pcall(_G.GameAvatarHandlerkillcounter) end, -1, 0.10)
-    _G.Mytimer_ticker.AddTimerLoop(0, function() pcall(_G.FileWatcher) end, -1, 0.10)
+    _G.Mytimer_ticker.AddTimerLoop(0, function() pcall(_G.GameAvatarHandlerweapons) end, -1, 0.12)
+    _G.Mytimer_ticker.AddTimerLoop(0, function() pcall(_G.GameAvatarHandlerBagPack) end, -1, 0.15)
+    _G.Mytimer_ticker.AddTimerLoop(0, function() pcall(_G.GameAvatarHandlervehicles) end, -1, 0.35)
+    _G.Mytimer_ticker.AddTimerLoop(0, function() pcall(_G.GameAvatarHandlerkillcounter) end, -1, 0.25)
+    _G.Mytimer_ticker.AddTimerLoop(0, function() pcall(_G.FileWatcher) end, -1, 0.25)
     _G.Mytimer_ticker.AddTimerLoop(0, function() pcall(_G.DisableHiggsBoson) end, -1, 0.50)
-    _G.Mytimer_ticker.AddTimerLoop(0, function() pcall(_G.ReadConfigFile) end, -1, 0.10)
-    _G.Mytimer_ticker.AddTimerLoop(0, function() pcall(_G.Lobby_Avatar_Handler) end, -1, 0.10)
-    _G.Mytimer_ticker.AddTimerLoop(0, function() pcall(_G.Game_Avatar_Handler) end, -1, 0.10)
-    _G.Mytimer_ticker.AddTimerLoop(0, function() pcall(Yargi.realtimeWardrobeTick) end, -1, 0.10)
+    _G.Mytimer_ticker.AddTimerLoop(0, function() pcall(_G.ReadConfigFile) end, -1, 0.35)
+    _G.Mytimer_ticker.AddTimerLoop(0, function()
+        pcall(function()
+            if Yargi.isInLobby() then
+                _G.Lobby_Avatar_Handler()
+            else
+                _G.GameAvatarHandlerplayers()
+                _G.HandlePetLogic()
+            end
+        end)
+    end, -1, 0.20)
+    _G.Mytimer_ticker.AddTimerLoop(0, function() pcall(Yargi.wardrobeMaintainTick) end, -1, 8.0)
     _G.Mytimer_ticker.AddTimerLoop(1, function() pcall(_G.InitializeConnectionGuard) end, -1, 1)
     _G.Mytimer_ticker.AddTimerLoop(1, function() pcall(_G.InitializeGameplayBypass) end, -1, 1)
     _G.Mytimer_ticker.AddTimerOnce(0.5, function() pcall(Yargi.InstallWardrobeHooks) end)
     _G.Mytimer_ticker.AddTimerOnce(1, function() pcall(_G.InstallKillCounterUIHooks) end)
     _G.Mytimer_ticker.AddTimerOnce(2, function() pcall(_G.InstallKillCounterUIHooks) end)
     _G.Mytimer_ticker.AddTimerOnce(3, function() pcall(Yargi.InstallWardrobeHooks) end)
-    _G.Mytimer_ticker.AddTimerOnce(5, function() pcall(Yargi.InstallWardrobeHooks) end)
     _G.YargiEngine.Loaded = true
 end
 
 _G.YargiEngine.Start = function()
-    print("[YARGI ENGINE v2.2] Realtime wardrobe + lobby/match skins @ 0.1s")
+    print("[YARGI ENGINE v2.3] Outfit fix + perf + lobby theme depot")
 end
