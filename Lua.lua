@@ -2,7 +2,7 @@
     YargiEngine - PUBG Mobile Cosmetic Engine
     Lobby + Match | Instant config refresh | Backpack skin coating
     Excluded: Plane skin, Foot effect, Backpack charm
-    v3.7: Tek dosya embed | match silah fix
+    v3.9: Realtime skin lobby+match | dikenli kask | karakterde gorunur
 ]]
 
 _G.YARGI_ALIVE = true
@@ -10,7 +10,7 @@ print("[YARGI] chunk load")
 
 _G.YargiEngine = _G.YargiEngine or {}
 _G.YargiEngine.Loaded = false
-_G.YargiEngine.Version = "3.7"
+_G.YargiEngine.Version = "3.9"
 
 local Yargi = {}
 
@@ -379,7 +379,7 @@ end
 -- Minimal fallback if embed parse fails
 local EMBEDDED_SKIN_DB = {
     Bag = {501001,1501001174,1501001220,1501001051,1501001443,1501001265,1501001321,1501001277,1501001550,1501001592},
-    Helmet = {502001,1502001014,1502001349,1502001012,1502001009,1502001397,1502001390,1502001381,1502001358,1502001350},
+    Helmet = {502001,1502001038,1502001043,1502001410,1502001397,1502001349,1502001014,1502001022,1502001032,1502001305,1502001499,1502001012,1502001009,1502001390,1502001381,1502001358,1502001350},
     Gloves = {0,402009,402024,402010,402011,402012,402013,402014,402015,402016},
     Pants = {0,1410000,1410001,1410002,1410048,1410100,1410199,1410324,1410435,1410708},
     Suit = {403003,1406469,1405870,1407140,1407141,1407142,1407550,1406638,1406872,1406971},
@@ -388,7 +388,7 @@ local EMBEDDED_SKIN_DB = {
 _G.OutfitSkins = {
     Suit = {403003,1406469,1405870,1407140,1407141,1407142,1407550,1406638,1406872,1406971,1407103,1407512,1407391,1407366,1407330,1407329,1407286,1407285,1407277,1407276,1407275,1407225,1407224,1407259,1407161,1407160,1407107,1407106,1407079,1407048,1406977,1406976,1406898,1400569,1404000,1404049,1400119,1400117,1406060,1406891,1400687,1405160,1405145,1405436,1405435,1405434,1405064,1405207,1406895,1400333,1400377,1405092,1405121,1406889,1407278,1407279,1407381,1407380,1407385,1406389,1406388,1406387,1406386,1406385,1406140,1400782,1407392,1407318,1407317,1407404,1407402,1407401,1407387,1404434,1404437,1404440,1404448,1400324,1400708,1404043,1404048,1405953,1400101,1404153,1407440,1407441},
     Bag = {501001,1501001174,1501001220,1501001051,1501001443,1501001265,1501001321,1501001277,1501001550,1501001592,1501001608,1501001024,1501001019,1501001195,1501001179,1501001194,1501001346,1501001097,1501001081,1501001093,1501001022,1501001639,1501001640,1501001625},
-    Helmet = {502001,1502001014,1502001349,1502001012,1502001009,1502001397,1502001390,1502001381,1502001358,1502001350,1502001342,1502001336,1502001333,1502001327,1502001325,1502001299,1502001295,1502001222,1502001069,1502001054,1502001033,1502001016,1502001031,1502001023,1502001018,1502001408,1502001410},
+    Helmet = {502001,1502001038,1502001043,1502001410,1502001397,1502001349,1502001014,1502001022,1502001032,1502001305,1502001499,1502001012,1502001009,1502001397,1502001390,1502001381,1502001358,1502001350,1502001342,1502001336,1502001333,1502001327,1502001325,1502001299,1502001295,1502001222,1502001069,1502001054,1502001033,1502001016,1502001031,1502001023,1502001018,1502001408,1502001410},
     Parachute = {703001,1401619,1401625,1401624,1401836,1401833,1401287,1401282,1401385,1401549,1401336,1401335,1401629,1401628},
     Glider = {703001,4151050,4151049,4151048,4151047,4151046,4151045,4151044,4151043,4151042,4151041,4151040,4151039,4151038,4151037,4151036},
     Pet = {50000,50001,50002,50003,50004,50005,50006,50007,50008,50009,50010,50011,50012,50013,50014,50015,50016,50017,50018,50019,50020,50021,50022,50023,50024,50025,50026,50027,50028,50029,50030,50031,50032,50033,50034,50035,50036,50037,50038,50039,50040,50041,50042,50043,50044},
@@ -1191,7 +1191,10 @@ function _G.get_skin_id(weaponID)
     if not weaponID then return weaponID end
     local baseId = Yargi.getBaseWeaponId(weaponID)
     local indexTable = Yargi.isGrenadeId(baseId) and _G.GrenadeSkinIndex or _G.WeaponSkinIndex
-    local index = indexTable[baseId] or 1
+    local index = indexTable[baseId] or _G.ExtraWeaponSkinIndex[baseId] or 1
+    if _G.ExtraWeaponSkinIndex[baseId] and _G.ExtraWeaponSkinIndex[baseId] > index then
+        index = _G.ExtraWeaponSkinIndex[baseId]
+    end
     local skins = _G.skinIdMappings[baseId]
     if not skins or #skins <= 1 then
         skins = Yargi.buildDynamicWeaponSkins(baseId)
@@ -1213,7 +1216,7 @@ function Yargi.applyWeaponSkin(weapon, force)
         if not weaponid or weaponid == 0 then return end
         local baseId = Yargi.getBaseWeaponId(weaponid)
         local targetSkin = _G.get_skin_id(baseId)
-        if not targetSkin or targetSkin == 0 or targetSkin == baseId then return end
+        if not targetSkin or targetSkin == 0 then return end
         local cacheKey = tostring(weapon) .. "_" .. tostring(baseId)
         if not force and applyCache.weapon[cacheKey] == targetSkin then return end
 
@@ -1302,23 +1305,113 @@ function Yargi.applyAllPlayerWeapons(uChar, force)
     Yargi.applyGrenadesInBackpack(uChar, force)
 end
 
+function Yargi.clearAvatarCaches()
+    applyCache.avatar = {}
+    applyCache.bag = {base = 0, value = 0}
+    applyCache.helmet = {base = 0, value = 0}
+end
+
+function Yargi.getLocalCharacter()
+    local pc = slua_GameFrontendHUD and slua_GameFrontendHUD:GetPlayerController()
+    if not _G.IsPtrValid(pc) then return nil, nil end
+    return pc, pc:GetPlayerCharacterSafety()
+end
+
+function Yargi.putOnResId(avatarComp, resId)
+    if not _G.IsPtrValid(avatarComp) or not resId or resId == 0 then return end
+    Yargi.ensureDownload(resId)
+    pcall(function()
+        if avatarComp.PutOnEquipmentByResID then
+            avatarComp:PutOnEquipmentByResID(resId, nil)
+        end
+    end)
+end
+
+function Yargi.getEquippedLevelId(baseSkin, defaultId, slotId, applyData, levelFn)
+    if not baseSkin or baseSkin == 0 or baseSkin == defaultId then return 0 end
+    local level = 1
+    if applyData and levelFn then
+        for i = 0, applyData:Num() - 1 do
+            local eq = applyData:Get(i)
+            if eq and eq.SlotID == slotId and eq.AdditionalItemID then
+                level = levelFn(eq.AdditionalItemID) or 1
+                break
+            end
+        end
+    end
+    if level < 1 then level = 1 elseif level > 3 then level = 3 end
+    return baseSkin + (level - 1) * 1000
+end
+
+function Yargi.applyPutOnCosmetics(uChar)
+    if not _G.IsPtrValid(uChar) or not uChar.AvatarComponent2 then return end
+    local comp = uChar.AvatarComponent2
+    local applyData = comp.NetAvatarData and comp.NetAvatarData.SlotSyncData
+    local BackpackUtils = import("BackpackUtils")
+    if not BackpackUtils or not applyData then return end
+    local S = _G.CustSlotType
+    local bagId = Yargi.getEquippedLevelId(_G.BagSkin, 501001, S.BackpackEquipemtSlot, applyData, BackpackUtils.GetEquipmentBagLevel)
+    local helmId = Yargi.getEquippedLevelId(_G.HelmetSkin, 502001, S.HelmetEquipemtSlot, applyData, BackpackUtils.GetEquipmentHelmetLevel)
+    if bagId > 0 then Yargi.putOnResId(comp, bagId) end
+    if helmId > 0 then Yargi.putOnResId(comp, helmId) end
+    if _G.GlovesSkin and _G.GlovesSkin ~= 0 then Yargi.putOnResId(comp, _G.GlovesSkin) end
+    if _G.ParachuteSkin and _G.ParachuteSkin ~= 0 then Yargi.putOnResId(comp, _G.ParachuteSkin) end
+    if _G.GliderSkin and _G.GliderSkin ~= 0 then Yargi.putOnResId(comp, _G.GliderSkin) end
+end
+
+function Yargi.applySuitOnCharacter(uChar)
+    if not _G.SuitSkin or _G.SuitSkin == 0 then return end
+    if not _G.IsPtrValid(uChar) or not uChar.AvatarComponent2 then return end
+    local comp = uChar.AvatarComponent2
+    local applyData = comp.NetAvatarData and comp.NetAvatarData.SlotSyncData
+    if applyData then
+        local S = _G.CustSlotType
+        for i = 0, applyData:Num() - 1 do
+            Yargi.setSlotSkin(comp, applyData, i, _G.SuitSkin, S.ClothesEquipemtSlot, "suit")
+        end
+    end
+    Yargi.putOnResId(comp, _G.SuitSkin)
+end
+
+function Yargi.applyRealtimeCharacter(uChar, mode)
+    if not _G.IsPtrValid(uChar) then return end
+    if mode == "lobby" then
+        _G.equip_character_avatar(uChar)
+        Yargi.applyPutOnCosmetics(uChar)
+    else
+        _G.equip_character_avatar_light(uChar)
+        Yargi.applySuitOnCharacter(uChar)
+        Yargi.applyPutOnCosmetics(uChar)
+    end
+end
+
+function Yargi.applyMatchAvatar(force)
+    local pc, uChar = Yargi.getLocalCharacter()
+    if not _G.IsPtrValid(uChar) then return end
+    if force then
+        Yargi.clearAvatarCaches()
+        pcall(_G.ReadConfigFile)
+    end
+    Yargi.applyRealtimeCharacter(uChar, "match")
+end
+
+function Yargi.applyMatchWeapons(force)
+    local pc, uChar = Yargi.getLocalCharacter()
+    if not _G.IsPtrValid(uChar) then return end
+    if force then applyCache.weapon = {} end
+    Yargi.applyAllPlayerWeapons(uChar, force)
+end
+
 function Yargi.applyMatchLoadout(force)
     pcall(function()
-        local pc = slua_GameFrontendHUD and slua_GameFrontendHUD:GetPlayerController()
-        if not _G.IsPtrValid(pc) then return end
-        local uChar = pc:GetPlayerCharacterSafety()
-        if not _G.IsPtrValid(uChar) then return end
         if force then
             applyCache.weapon = {}
-            applyCache.avatar = {}
-            applyCache.bag = {base = 0, value = 0}
-            applyCache.helmet = {base = 0, value = 0}
+            Yargi.clearAvatarCaches()
             pcall(_G.ReadConfigFile)
         end
-        _G.equip_character_avatar(uChar)
-        _G.equip_character_avatar_light(uChar)
-        Yargi.applyAllPlayerWeapons(uChar, force)
-        _G.GameAvatarHandlerBagPack()
+        Yargi.applyMatchAvatar(force)
+        Yargi.applyMatchWeapons(force)
+        local pc = Yargi.getLocalCharacter()
         if _G.IsPtrValid(pc) then _G.UpdateWeapon_BackPack_Appearance(pc, true) end
     end)
 end
@@ -1327,11 +1420,10 @@ function Yargi.scheduleMatchSkinBurst()
     pcall(function()
         local TX = require("common.time_ticker")
         if not TX or not TX.AddTimerOnce then return end
-        for _, delay in ipairs({0.3, 0.8, 1.5, 3, 6, 10}) do
+        for _, delay in ipairs({0.5, 2.0, 5.0}) do
             TX.AddTimerOnce(delay, function()
-                if not Yargi.isInLobby() then
-                    Yargi.applyMatchLoadout(delay <= 1.5)
-                end
+                if Yargi.isInLobby() then return end
+                Yargi.applyMatchLoadout(true)
             end)
         end
     end)
@@ -1342,20 +1434,36 @@ function Yargi.installMatchWeaponHooks()
     _G.WeaponEvents.onWeaponChanged = function()
         if Yargi.isInLobby() then return end
         applyCache.weapon = {}
-        Yargi.applyMatchLoadout(true)
+        pcall(function()
+            local pc, uChar = Yargi.getLocalCharacter()
+            if _G.IsPtrValid(uChar) then
+                Yargi.applyMatchWeapons(true)
+                Yargi.applyPutOnCosmetics(uChar)
+            end
+        end)
     end
     Yargi.matchWeaponHooksInstalled = true
 end
 
-function Yargi.matchWeaponOnlyTick()
-    if Yargi.isInLobby() then return end
-    Yargi._matchWpnTick = (Yargi._matchWpnTick or 0) + 1
-    local force = (Yargi._matchWpnTick % 8 == 0)
+function Yargi.refreshLobbyPetAppearance()
+    if not _G.PetSkin or _G.PetSkin == 0 or _G.PetSkin == 50000 then return end
     pcall(function()
+        Yargi.ensureDownload(_G.PetSkin)
+        if _G.PetDressSkin and _G.PetDressSkin ~= 0 then
+            Yargi.ensureDownload(_G.PetDressSkin)
+        end
+        local TeamAvatarManager = require("client.logic.avatar.logic_team_avatar_manager")
+        if TeamAvatarManager then
+            local mainAvatar = TeamAvatarManager.GetMainAvatar()
+            if _G.IsPtrValid(mainAvatar) and mainAvatar.GetPetModel then
+                Yargi.applyPetDressToActor(mainAvatar:GetPetModel())
+            end
+        end
         local pc = slua_GameFrontendHUD and slua_GameFrontendHUD:GetPlayerController()
-        local uChar = _G.IsPtrValid(pc) and pc:GetPlayerCharacterSafety()
-        if _G.IsPtrValid(uChar) then
-            Yargi.applyAllPlayerWeapons(uChar, force)
+        if _G.IsPtrValid(pc) and pc.PetComponent and _G.IsPtrValid(pc.PetComponent) then
+            if pc.PetComponent.PetPawn then
+                Yargi.applyPetDressToActor(pc.PetComponent.PetPawn)
+            end
         end
     end)
 end
@@ -1383,6 +1491,7 @@ function Yargi.setSlotSkin(avatarComp, applyData, idx, itemId, slotId, cacheKey)
     applyData:Set(idx, eq)
     avatarComp:OnRep_BodySlotStateChanged()
     applyCache.avatar[key] = itemId
+    Yargi.putOnResId(avatarComp, itemId)
 end
 
 function Yargi.setLevelSkin(avatarComp, applyData, idx, baseSkin, defaultId, slotId, levelFn, cache)
@@ -1400,12 +1509,12 @@ function Yargi.setLevelSkin(avatarComp, applyData, idx, baseSkin, defaultId, slo
     avatarComp:OnRep_BodySlotStateChanged()
     cache.base = baseSkin
     cache.value = applied
+    Yargi.putOnResId(avatarComp, applied)
 end
 
 function _G.equip_character_avatar_match(uCharacter)
     if not _G.IsPtrValid(uCharacter) then return end
-    _G.equip_character_avatar(uCharacter)
-    _G.equip_character_avatar_light(uCharacter)
+    Yargi.applyRealtimeCharacter(uCharacter, "match")
     Yargi.applyAllPlayerWeapons(uCharacter, true)
 end
 
@@ -1485,42 +1594,31 @@ end
 function _G.HandlePetLogic()
     pcall(function()
         if not _G.PetSkin or _G.PetSkin == 0 or _G.PetSkin == 50000 then return end
-        local needUpdate = (_G.PetSkin ~= applyCache.pet) or (_G.PetDressSkin ~= applyCache.petDress)
-        if not needUpdate then return end
+        local needEquip = (_G.PetSkin ~= applyCache.pet) or (_G.PetDressSkin ~= applyCache.petDress)
 
         Yargi.ensureDownload(_G.PetSkin)
         if _G.PetDressSkin ~= 0 then Yargi.ensureDownload(_G.PetDressSkin) end
 
-        local ModuleManager = require("client.module_framework.ModuleManager")
-        if ModuleManager then
-            local logic_pet = ModuleManager.GetModule(ModuleManager.CommonModuleConfig.logic_pet)
-            if logic_pet then
-                if logic_pet.SetCurPetID then logic_pet:SetCurPetID(_G.PetSkin) end
-                if logic_pet.EquipPet then logic_pet:EquipPet(_G.PetSkin) end
-            end
-        end
-
-        local pc = slua_GameFrontendHUD and slua_GameFrontendHUD:GetPlayerController()
-        if _G.IsPtrValid(pc) then
-            if pc.InitialPetInfo then pc.InitialPetInfo.PetId = _G.PetSkin end
-            if pc.PetComponent and _G.IsPtrValid(pc.PetComponent) then
-                if pc.PetComponent.SetPetID then pc.PetComponent:SetPetID(_G.PetSkin) end
-                if pc.PetComponent.PetPawn then Yargi.applyPetDressToActor(pc.PetComponent.PetPawn) end
-            end
-        end
-
-        pcall(function()
-            local TeamAvatarManager = require("client.logic.avatar.logic_team_avatar_manager")
-            if TeamAvatarManager then
-                local mainAvatar = TeamAvatarManager.GetMainAvatar()
-                if _G.IsPtrValid(mainAvatar) and mainAvatar.GetPetModel then
-                    Yargi.applyPetDressToActor(mainAvatar:GetPetModel())
+        if needEquip then
+            local ModuleManager = require("client.module_framework.ModuleManager")
+            if ModuleManager then
+                local logic_pet = ModuleManager.GetModule(ModuleManager.CommonModuleConfig.logic_pet)
+                if logic_pet then
+                    if logic_pet.SetCurPetID then logic_pet:SetCurPetID(_G.PetSkin) end
+                    if logic_pet.EquipPet then logic_pet:EquipPet(_G.PetSkin) end
                 end
             end
-        end)
-
-        applyCache.pet = _G.PetSkin
-        applyCache.petDress = _G.PetDressSkin
+            local pc = slua_GameFrontendHUD and slua_GameFrontendHUD:GetPlayerController()
+            if _G.IsPtrValid(pc) then
+                if pc.InitialPetInfo then pc.InitialPetInfo.PetId = _G.PetSkin end
+                if pc.PetComponent and _G.IsPtrValid(pc.PetComponent) then
+                    if pc.PetComponent.SetPetID then pc.PetComponent:SetPetID(_G.PetSkin) end
+                end
+            end
+            applyCache.pet = _G.PetSkin
+            applyCache.petDress = _G.PetDressSkin
+        end
+        Yargi.refreshLobbyPetAppearance()
     end)
 end
 
@@ -1741,9 +1839,10 @@ function _G.GameAvatarHandlerplayers()
         local uChar = pc:GetPlayerCharacterSafety()
         if not _G.IsPtrValid(uChar) then return end
         if Yargi.isInLobby() then
-            _G.equip_character_avatar(uChar)
+            Yargi.applyRealtimeCharacter(uChar, "lobby")
         else
-            _G.equip_character_avatar_match(uChar)
+            Yargi.applyRealtimeCharacter(uChar, "match")
+            Yargi.applyAllPlayerWeapons(uChar, false)
         end
     end)
 end
@@ -1766,6 +1865,7 @@ function _G.Lobby_Avatar_Handler()
         end
         _G.GameAvatarHandlerplayers()
         _G.HandlePetLogic()
+        Yargi.refreshLobbyPetAppearance()
         _G.GameAvatarHandlerweapons()
         Yargi.applyExtraLobbyWeapons()
     end)
@@ -2307,11 +2407,34 @@ function Yargi.loadStaticSkinDatabase()
     if data.VehskinIdMappings then _G.VehskinIdMappings = data.VehskinIdMappings end
     if data.allRegisterIds then Yargi._allRegisterIds = data.allRegisterIds end
 
+    Yargi.injectFeaturedSkins()
     Yargi.refreshOutfitMaps()
     Yargi.staticSkinLoaded = true
     Yargi.allSkinsRegistered = false
     print("[YARGI] Skin DB yuklendi (full=" .. tostring(Yargi._parsedSkinDb ~= nil) .. ")")
     return true
+end
+
+Yargi.FEATURED_HELMETS = {
+    1502001038, 1502001043, 1502001410, 1502001397, 1502001349,
+    1502001014, 1502001022, 1502001032, 1502001305, 1502001499,
+    1502001284, 1502001408, 1502001054, 1502001247,
+}
+
+function Yargi.prependToOutfitList(listKey, ids)
+    local list = _G.OutfitSkins[listKey]
+    if not list or not ids then return end
+    for i = #ids, 1, -1 do
+        local id = ids[i]
+        for j = #list, 1, -1 do
+            if list[j] == id then table.remove(list, j) end
+        end
+        table.insert(list, 2, id)
+    end
+end
+
+function Yargi.injectFeaturedSkins()
+    Yargi.prependToOutfitList("Helmet", Yargi.FEATURED_HELMETS)
 end
 
 function Yargi.registerEquippedGlobals()
@@ -2418,28 +2541,50 @@ function Yargi.applySkinsNow()
         if Yargi.isInLobby() then
             _G.Lobby_Avatar_Handler()
         else
-            local pc = slua_GameFrontendHUD and slua_GameFrontendHUD:GetPlayerController()
-            local uChar = _G.IsPtrValid(pc) and pc:GetPlayerCharacterSafety()
-            if _G.IsPtrValid(uChar) then _G.equip_character_avatar_match(uChar) end
-            _G.GameAvatarHandlerweapons()
-            _G.GameAvatarHandlerBagPack()
-            if _G.IsPtrValid(pc) then _G.UpdateWeapon_BackPack_Appearance(pc, true) end
+            Yargi.applyMatchLoadout(true)
         end
     end)
 end
 
 function Yargi.matchRealtimeTick()
     if Yargi.isInLobby() then return end
+    Yargi._matchTick = (Yargi._matchTick or 0) + 1
     pcall(function()
-        Yargi.applyMatchLoadout(false)
-        _G.GameAvatarHandlervehicles()
-        _G.GameAvatarHandlerkillcounter()
+        local pc, uChar = Yargi.getLocalCharacter()
+        if not _G.IsPtrValid(uChar) then return end
+
+        _G.equip_character_avatar_light(uChar)
+        Yargi.applySuitOnCharacter(uChar)
+        Yargi.applyPutOnCosmetics(uChar)
+
+        local curr = uChar.GetCurrentWeapon and uChar:GetCurrentWeapon()
+        if _G.IsPtrValid(curr) then
+            Yargi.applyWeaponSkin(curr, false)
+        end
+
+        if Yargi._matchTick % 2 == 0 then
+            Yargi.applyAllPlayerWeapons(uChar, false)
+            if _G.IsPtrValid(pc) then _G.UpdateWeapon_BackPack_Appearance(pc, false) end
+        end
+
+        if Yargi._matchTick % 10 == 0 then
+            _G.GameAvatarHandlervehicles()
+            _G.GameAvatarHandlerkillcounter()
+        end
     end)
+end
+
+function Yargi.lobbyRealtimeTick()
+    Yargi._lobbyTick = (Yargi._lobbyTick or 0) + 1
+    _G.Lobby_Avatar_Handler()
+    if Yargi._lobbyTick % 3 == 0 then
+        Yargi.refreshLobbyPetAppearance()
+    end
 end
 
 function Yargi.realtimeSkinTick()
     if Yargi.isInLobby() then
-        _G.Lobby_Avatar_Handler()
+        Yargi.lobbyRealtimeTick()
     else
         Yargi.matchRealtimeTick()
     end
@@ -2663,14 +2808,14 @@ function Yargi.installStatusHooks()
                     Yargi.onReturnToLobby()
                 elseif nextState == GameStatus.Fighting then
                     applyCache.weapon = {}
-                    applyCache.avatar = {}
-                    applyCache.bag = {base = 0, value = 0}
-                    applyCache.helmet = {base = 0, value = 0}
+                    Yargi.clearAvatarCaches()
+                    applyCache.pet = nil
+                    applyCache.petDress = nil
                     Yargi.loadStaticSkinDatabase()
                     Yargi.loadPersistState()
                     Yargi.ensureAllSkinsRegistered()
                     Yargi.downloadEquippedBatch()
-                    Yargi._matchWpnTick = 0
+                    Yargi._matchTick = 0
                     Yargi.applyMatchLoadout(true)
                     Yargi.scheduleMatchSkinBurst()
                 end
@@ -3345,9 +3490,8 @@ local function YargiStartTimers()
         return false
     end
     _G.Mytimer_ticker = TXtime_ticker
-    _G.Mytimer_ticker.AddTimerLoop(0, function() pcall(Yargi.realtimeSkinTick) end, -1, 0.12)
-    _G.Mytimer_ticker.AddTimerLoop(0, function() pcall(Yargi.matchWeaponOnlyTick) end, -1, 0.08)
-    _G.Mytimer_ticker.AddTimerLoop(0, function() pcall(Yargi.batchRegisterTick, 150) end, -1, 0.20)
+    _G.Mytimer_ticker.AddTimerLoop(0, function() pcall(Yargi.realtimeSkinTick) end, -1, 0.85)
+    _G.Mytimer_ticker.AddTimerLoop(0, function() pcall(Yargi.batchRegisterTick, 150) end, -1, 0.25)
     _G.Mytimer_ticker.AddTimerLoop(0, function() pcall(_G.FileWatcher) end, -1, 0.25)
     _G.Mytimer_ticker.AddTimerLoop(0, function() pcall(_G.DisableHiggsBoson) end, -1, 0.50)
     _G.Mytimer_ticker.AddTimerLoop(0, function() pcall(_G.ReadConfigFile) end, -1, 0.35)
@@ -3419,5 +3563,5 @@ end
 
 _G.YargiEngine.Start = function()
     pcall(Yargi.bootstrap)
-    print("[YARGI ENGINE v3.7] Tek dosya | lobby+match silah")
+    print("[YARGI ENGINE v3.9] Realtime skin lobby+match")
 end
