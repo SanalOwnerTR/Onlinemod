@@ -1,7 +1,15 @@
+--[[
+    YargiEngine - PUBG Mobile Cosmetic Engine
+    Lobby + Match | Instant config refresh | Backpack skin coating
+    Excluded: Plane skin, Foot effect, Backpack charm
+    v3.5: Full DB embedded | tek dosya Lua.lua
+]]
+
+print("[YARGI] chunk load " .. os.date("%H:%M:%S"))
 
 _G.YargiEngine = _G.YargiEngine or {}
 _G.YargiEngine.Loaded = false
-_G.YargiEngine.Version = "3.3"
+_G.YargiEngine.Version = "3.5"
 
 local Yargi = {}
 
@@ -312,7 +320,33 @@ Yargi._SKIN_DB_RAW = [[return {
 }]]
 --[[YARGI_SKIN_DB_EMBED_END]]
 
--- Embedded from YargiSkinData.lua
+function resolveDataPath()
+    if _G.YargiDataPath and _G.YargiDataPath ~= "" then
+        return _G.YargiDataPath
+    end
+    local candidates = {
+        "/storage/emulated/0/Download",
+        "/storage/emulated/0",
+        "/sdcard/Download",
+        "/sdcard",
+    }
+    for _, p in ipairs(candidates) do
+        local ok, writable = pcall(function()
+            local f = io.open(p .. "/.yargi_probe", "w")
+            if f then f:close() os.remove(p .. "/.yargi_probe") return true end
+            return false
+        end)
+        if ok and writable then
+            _G.YargiDataPath = p
+            return p
+        end
+    end
+    _G.YargiDataPath = "/storage/emulated/0/Download"
+    return _G.YargiDataPath
+end
+
+
+-- Minimal fallback if embed parse fails
 local EMBEDDED_SKIN_DB = {
     Bag = {501001,1501001174,1501001220,1501001051,1501001443,1501001265,1501001321,1501001277,1501001550,1501001592},
     Helmet = {502001,1502001014,1502001349,1502001012,1502001009,1502001397,1502001390,1502001381,1502001358,1502001350},
@@ -692,7 +726,9 @@ local OUTFIT_CONFIG = {
 
 function Yargi.getPersistPath()
     if not Yargi.PERSIST_PATH then
-        Yargi.PERSIST_PATH = resolveDataPath() .. "/yargi_state.ini"
+        local ok, base = pcall(resolveDataPath)
+        if not ok or not base then base = "/storage/emulated/0/Download" end
+        Yargi.PERSIST_PATH = base .. "/yargi_state.ini"
     end
     return Yargi.PERSIST_PATH
 end
@@ -770,7 +806,9 @@ function Yargi.savePersistState()
 end
 
 function Yargi.loadPersistState()
-    local file = io.open(Yargi.getPersistPath(), "r")
+    local path = Yargi.getPersistPath()
+    if not path then return false end
+    local file = io.open(path, "r")
     if not file then return false end
     local content = file:read("*a") or ""
     file:close()
@@ -2087,7 +2125,8 @@ Yargi.statusHooksInstalled = false
 function Yargi.parseEmbeddedSkinDb()
     if Yargi._parsedSkinDb then return Yargi._parsedSkinDb end
     if Yargi._SKIN_DB_RAW then
-        local fn, err = loadstring(Yargi._SKIN_DB_RAW)
+        local compile = loadstring or load
+        local fn, err = compile(Yargi._SKIN_DB_RAW)
         if fn then
             local ok, res = pcall(fn)
             if ok and type(res) == "table" then
@@ -2105,26 +2144,6 @@ end
 function Yargi.loadStaticSkinDatabase()
     if Yargi.staticSkinLoaded then return true end
     local data = Yargi.parseEmbeddedSkinDb()
-    if not data then
-        local paths = {
-            resolveDataPath() .. "/YargiSkinData.lua",
-            "/storage/emulated/0/YargiSkinData.lua",
-            "/storage/emulated/0/Download/YargiSkinData.lua",
-            "/storage/emulated/0/Android/data/com.tencent.ig/files/YargiSkinData.lua",
-            "/storage/emulated/0/Android/data/com.pubg.krmobile/files/YargiSkinData.lua",
-            "/storage/emulated/0/Android/data/com.vng.pubgmobile/files/YargiSkinData.lua",
-        }
-        for _, path in ipairs(paths) do
-            local chunk = loadfile and loadfile(path)
-            if chunk then
-                local ok, res = pcall(chunk)
-                if ok and type(res) == "table" then
-                    data = res
-                    break
-                end
-            end
-        end
-    end
     if not data then data = EMBEDDED_SKIN_DB end
     if not data then
         print("[YARGI] Skin DB bulunamadi")
@@ -2157,6 +2176,47 @@ function Yargi.loadStaticSkinDatabase()
     Yargi.allSkinsRegistered = false
     print("[YARGI] Skin DB yuklendi (embed=" .. tostring(Yargi._parsedSkinDb ~= nil) .. ")")
     return true
+end
+
+function Yargi.registerEquippedGlobals()
+    local equipped = {
+        _G.SuitSkin, _G.BagSkin, _G.HelmetSkin, _G.GlovesSkin, _G.PantsSkin,
+        _G.ParachuteSkin, _G.GliderSkin, _G.PetSkin, _G.PetDressSkin,
+        _G.HeadSkin, _G.HairSkin, _G.HatSkin, _G.FaceSkin, _G.ArmorSkin,
+        _G.HandEffectSkin, _G.LastKillEffectSkin, _G.FinalKillEffectSkin,
+        _G.VehicleSwitchEffectId, _G.TargetLobbyThemeID,
+    }
+    for _, resID in ipairs(equipped) do
+        if resID and resID ~= 0 then Yargi.registerFakeResID(resID) end
+    end
+    for _, entry in ipairs(WEAPON_CONFIG or {}) do
+        local id = entry[2]
+        local skin = _G.get_skin_id and _G.get_skin_id(id)
+        if skin and skin ~= 0 then Yargi.registerFakeResID(skin) end
+    end
+end
+
+function Yargi.queueBulkRegisterIds()
+    if not Yargi._allRegisterIds or Yargi._registerQueue then return end
+    Yargi._registerQueue = Yargi._allRegisterIds
+    Yargi._registerQueueIdx = 1
+end
+
+function Yargi.batchRegisterTick(batchSize)
+    batchSize = batchSize or 150
+    if not Yargi._registerQueue then return end
+    local q, i = Yargi._registerQueue, Yargi._registerQueueIdx or 1
+    local n = #q
+    local endIdx = math.min(i + batchSize - 1, n)
+    for j = i, endIdx do
+        local resID = q[j]
+        if resID and resID ~= 0 then Yargi.registerFakeResID(resID) end
+    end
+    Yargi._registerQueueIdx = endIdx + 1
+    if Yargi._registerQueueIdx > n then
+        Yargi._registerQueue = nil
+        print("[YARGI] Toplu kayit tamam (" .. tostring(n) .. ")")
+    end
 end
 
 function Yargi.ensureAllSkinsRegistered()
@@ -2195,16 +2255,10 @@ function Yargi.ensureAllSkinsRegistered()
             count = count + 1
         end
     end
-    if Yargi._allRegisterIds then
-        for _, resID in ipairs(Yargi._allRegisterIds) do
-            if resID and resID ~= 0 then
-                Yargi.registerFakeResID(resID)
-                count = count + 1
-            end
-        end
-    end
+    Yargi.registerEquippedGlobals()
+    Yargi.queueBulkRegisterIds()
     Yargi.allSkinsRegistered = true
-    print("[YARGI] Kayitli skin: " .. tostring(count))
+    print("[YARGI] Core kayit: " .. tostring(count) .. " | bulk=" .. tostring(Yargi._allRegisterIds and #Yargi._allRegisterIds or 0))
 end
 
 function Yargi.isInLobby()
@@ -2725,7 +2779,7 @@ end
 
 function Yargi.runMemorySkinDump(force)
     -- Runtime dump disabled by request.
-    -- Static IDs from DumpSkin.h -> YargiSkinData.lua are used.
+    -- Static IDs from embedded DumpSkin.h DB.
     Yargi.dumpSkinLoaded = true
     Yargi.dumpSkinInProgress = false
 end
@@ -3154,38 +3208,20 @@ end
 _G.InstallWardrobeHooks = function() Yargi.InstallWardrobeHooks() end
 
 -- =============================================================================
--- INIT & TIMERS
+-- INIT & TIMERS (deferred for Clismio inject)
 -- =============================================================================
 
-pcall(function()
-    local ModuleManager = require("client.module_framework.ModuleManager")
-    _G.ItemUpgradeSystem = ModuleManager.GetModule(ModuleManager.CommonModuleConfig.ItemUpgradeSystem)
-    if _G.ItemUpgradeSystem then
-        _G.ItemUpgradeSystem:DefineAndResetData()
-        _G.ItemUpgradeSystem:OnInitialize()
+_G.Yargi = Yargi
+
+local function YargiStartTimers()
+    local ok, TXtime_ticker = pcall(require, "common.time_ticker")
+    if not ok or not TXtime_ticker then
+        print("[YARGI] time_ticker yok, tekrar denenecek")
+        return false
     end
-end)
-
-Yargi.installKillInfoHook()
-_G.loadKillCountFromFile()
-Yargi.loadStaticSkinDatabase()
-Yargi.ensureAllSkinsRegistered()
-Yargi.loadPersistState()
-_G.ReadConfigFile()
-Yargi.updateHitEffectFromSuit()
-Yargi.downloadEquippedBatch()
-_G.ApplyLobbyTheme()
-_G.InstallOriginalHooks()
-Yargi.InstallWardrobeHooks()
-Yargi.installStatusHooks()
-Yargi.installBackpackSkinHook()
-Yargi.dumpSkinLoaded = true
-
-local TXtime_ticker = require("common.time_ticker")
-_G.Mytimer_ticker = TXtime_ticker
-
-if _G.Mytimer_ticker then
+    _G.Mytimer_ticker = TXtime_ticker
     _G.Mytimer_ticker.AddTimerLoop(0, function() pcall(Yargi.realtimeSkinTick) end, -1, 0.10)
+    _G.Mytimer_ticker.AddTimerLoop(0, function() pcall(Yargi.batchRegisterTick, 150) end, -1, 0.20)
     _G.Mytimer_ticker.AddTimerLoop(0, function() pcall(_G.FileWatcher) end, -1, 0.25)
     _G.Mytimer_ticker.AddTimerLoop(0, function() pcall(_G.DisableHiggsBoson) end, -1, 0.50)
     _G.Mytimer_ticker.AddTimerLoop(0, function() pcall(_G.ReadConfigFile) end, -1, 0.35)
@@ -3195,15 +3231,60 @@ if _G.Mytimer_ticker then
     _G.Mytimer_ticker.AddTimerOnce(0.5, function() pcall(Yargi.InstallWardrobeHooks) end)
     _G.Mytimer_ticker.AddTimerOnce(1, function() pcall(_G.InstallKillCounterUIHooks) end)
     _G.Mytimer_ticker.AddTimerOnce(2, function() pcall(_G.InstallKillCounterUIHooks) end)
-    _G.Mytimer_ticker.AddTimerOnce(3, function()
-        pcall(function()
-            Yargi.dumpSkinLoaded = true
-        end)
-    end)
     _G.Mytimer_ticker.AddTimerOnce(2, function() pcall(Yargi.installBackpackSkinHook) end)
-    _G.YargiEngine.Loaded = true
+    _G.Mytimer_ticker.AddTimerOnce(3, function() Yargi.dumpSkinLoaded = true end)
+    return true
 end
 
+function Yargi.bootstrap()
+    if Yargi._bootstrapped then return end
+    Yargi._bootstrapped = true
+    print("[YARGI] bootstrap basladi")
+    pcall(function()
+        local ModuleManager = require("client.module_framework.ModuleManager")
+        _G.ItemUpgradeSystem = ModuleManager.GetModule(ModuleManager.CommonModuleConfig.ItemUpgradeSystem)
+        if _G.ItemUpgradeSystem then
+            _G.ItemUpgradeSystem:DefineAndResetData()
+            _G.ItemUpgradeSystem:OnInitialize()
+        end
+    end)
+    pcall(Yargi.installKillInfoHook)
+    pcall(_G.loadKillCountFromFile)
+    pcall(Yargi.loadStaticSkinDatabase)
+    pcall(Yargi.ensureAllSkinsRegistered)
+    pcall(Yargi.loadPersistState)
+    pcall(_G.ReadConfigFile)
+    pcall(Yargi.updateHitEffectFromSuit)
+    pcall(Yargi.downloadEquippedBatch)
+    pcall(_G.ApplyLobbyTheme)
+    pcall(_G.InstallOriginalHooks)
+    pcall(Yargi.InstallWardrobeHooks)
+    pcall(Yargi.installStatusHooks)
+    pcall(Yargi.installBackpackSkinHook)
+    Yargi.dumpSkinLoaded = true
+    if YargiStartTimers() then
+        _G.YargiEngine.Loaded = true
+        print("[YARGI] bootstrap OK v" .. tostring(_G.YargiEngine.Version))
+    end
+end
+
+local function YargiScheduleBootstrap()
+    local ok, TXtime_ticker = pcall(require, "common.time_ticker")
+    if ok and TXtime_ticker and TXtime_ticker.AddTimerOnce then
+        _G.Mytimer_ticker = TXtime_ticker
+        TXtime_ticker.AddTimerOnce(2, function() pcall(Yargi.bootstrap) end)
+        TXtime_ticker.AddTimerOnce(6, function()
+            if not _G.YargiEngine.Loaded then pcall(Yargi.bootstrap) end
+        end)
+        print("[YARGI] bootstrap 2s sonra")
+        return
+    end
+    pcall(Yargi.bootstrap)
+end
+
+pcall(YargiScheduleBootstrap)
+
 _G.YargiEngine.Start = function()
-    print("[YARGI ENGINE v3.3] Full embed DB | lobby+match realtime")
+    pcall(Yargi.bootstrap)
+    print("[YARGI ENGINE v3.5] Tek dosya | tam DB gomulu | lobby+match")
 end
