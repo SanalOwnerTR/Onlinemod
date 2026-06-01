@@ -1,12 +1,7 @@
---[[
-    YargiEngine - PUBG Mobile Cosmetic Engine
-    Lobby + Match | Instant config refresh | Backpack skin coating
-    Excluded: Plane skin, Foot effect, Backpack charm
-]]
 
 _G.YargiEngine = _G.YargiEngine or {}
 _G.YargiEngine.Loaded = false
-_G.YargiEngine.Version = "2.3"
+_G.YargiEngine.Version = "3.0"
 
 local Yargi = {}
 
@@ -164,7 +159,12 @@ _G.VehskinIdMappings = {
 _G.WeaponSkinIndex = _G.WeaponSkinIndex or {}
 _G.VehicleSkinIndex = _G.VehicleSkinIndex or {}
 _G.GrenadeSkinIndex = _G.GrenadeSkinIndex or {}
+_G.ExtraWeaponSkinIndex = _G.ExtraWeaponSkinIndex or {}
 _G.skinIdCache = _G.skinIdCache or {}
+_G.matchAvatarFullApplied = false
+_G.ActiveHitEffectResId = 0
+_G.SkinLoadedCache = _G.SkinLoadedCache or {}
+_G.BackpackSkinHooked = false
 _G.killCountInfo = _G.killCountInfo or {}
 _G.lastFileContent = ""
 _G.isFileWatcherActive = true
@@ -259,10 +259,19 @@ end
 _G.download_item = Yargi.download_item
 
 function Yargi.ensureDownload(id)
-    if id and id ~= 0 and not _G.skinIdCache[id] then
-        Yargi.download_item(id)
-        _G.skinIdCache[id] = true
+    if id and id ~= 0 then
+        _G.SkinLoadedCache[id] = true
+        if not _G.skinIdCache[id] then
+            Yargi.download_item(id)
+            _G.skinIdCache[id] = true
+        end
     end
+end
+
+function _G.rawGetTableData(tableName, id)
+    local ok, CDataTable = pcall(require, "client.slua.config.ClientConfig.data_mgr")
+    if not ok or not CDataTable then return nil end
+    return CDataTable.GetTableData(tableName, id)
 end
 
 function Yargi.pickFromMap(map, index)
@@ -303,6 +312,9 @@ function Yargi.resetApplyCaches()
     applyCache.avatar = {}
     _G.LastAppliedThemeID = nil
 end
+
+Yargi.persistLoaded = false
+Yargi.PERSIST_PATH = nil
 
 function Yargi.buildDynamicWeaponSkins(baseId)
     local list = {baseId}
@@ -402,6 +414,180 @@ local OUTFIT_CONFIG = {
     {"VehicleEffect","VehicleSwitchEffectId","VehicleEffect"}
 }
 
+-- =============================================================================
+-- PERSIST STATE (lobby selection = match = lobby return)
+-- =============================================================================
+
+function Yargi.getPersistPath()
+    if not Yargi.PERSIST_PATH then
+        Yargi.PERSIST_PATH = resolveDataPath() .. "/yargi_state.ini"
+    end
+    return Yargi.PERSIST_PATH
+end
+
+function Yargi.resolveHitEffectFromItem(itemId)
+    if not itemId or itemId == 0 then return 0 end
+    local hitId = 0
+    pcall(function()
+        local CDataTable = require("client.slua.config.ClientConfig.data_mgr")
+        local featuresItems = CDataTable.GetTableData("FeaturesItems", itemId)
+        if not featuresItems or not featuresItems.Features or featuresItems.Features == "" then return end
+        local StringUtil = require("common.string_util")
+        local features = StringUtil.Split(featuresItems.Features, ";")
+        for _, featureIDStr in ipairs(features) do
+            local featureID = tonumber(featureIDStr)
+            if featureID and ENUM_FeatureType then
+                local featureCfg = CDataTable.GetTableData("FeaturesConfig", featureID)
+                if featureCfg and featureCfg.FeatureType == ENUM_FeatureType.HitEffect then
+                    hitId = itemId
+                    break
+                end
+            end
+        end
+        if hitId == 0 then
+            local eff = CDataTable.GetTableData("AvatarWeaponHitFXData", itemId)
+            if eff then hitId = itemId end
+        end
+    end)
+    return hitId
+end
+
+function Yargi.updateHitEffectFromSuit()
+    _G.ActiveHitEffectResId = Yargi.resolveHitEffectFromItem(_G.SuitSkin)
+end
+
+function Yargi.savePersistState()
+    local lines = {"PersistVersion=3"}
+    for _, entry in ipairs(OUTFIT_CONFIG) do
+        local cfgKey, globalKey = entry[1], entry[2]
+        local list = _G[entry[3]] or _G.OutfitSkins[entry[3]]
+        if list and _G[globalKey] and _G[globalKey] ~= 0 then
+            for i, id in ipairs(list) do
+                if id == _G[globalKey] then
+                    lines[#lines + 1] = cfgKey .. "=" .. tostring(i - 1)
+                    break
+                end
+            end
+        end
+    end
+    if _G.TargetLobbyThemeID and _G.TargetLobbyThemeID ~= 0 then
+        lines[#lines + 1] = "LobbyTheme=" .. tostring(_G.TargetLobbyThemeID)
+    end
+    for _, entry in ipairs(WEAPON_CONFIG) do
+        local key, id = entry[1], entry[2]
+        local idxTable = Yargi.isGrenadeId(id) and _G.GrenadeSkinIndex or _G.WeaponSkinIndex
+        local idx = idxTable[id]
+        if idx then lines[#lines + 1] = "W_" .. key .. "=" .. tostring(idx - 1) end
+    end
+    for gunID, idx in pairs(_G.ExtraWeaponSkinIndex) do
+        if idx and idx > 0 then
+            lines[#lines + 1] = "ExtraW_" .. tostring(gunID) .. "=" .. tostring(idx - 1)
+        end
+    end
+    for _, entry in ipairs(VEHICLE_CONFIG) do
+        local key, id = entry[1], entry[2]
+        local idx = _G.VehicleSkinIndex[id]
+        if idx then lines[#lines + 1] = "V_" .. key .. "=" .. tostring(idx - 1) end
+    end
+    local file = io.open(Yargi.getPersistPath(), "w")
+    if file then
+        file:write(table.concat(lines, "\n") .. "\n")
+        file:close()
+    end
+    Yargi.persistLoaded = true
+end
+
+function Yargi.loadPersistState()
+    local file = io.open(Yargi.getPersistPath(), "r")
+    if not file then return false end
+    local content = file:read("*a") or ""
+    file:close()
+    if not content:find("PersistVersion=3") then return false end
+    local cfg = Yargi.parseConfig(content)
+    for _, entry in ipairs(OUTFIT_CONFIG) do
+        local key, globalKey, mapKey = entry[1], entry[2], entry[3]
+        if cfg[key] ~= nil then
+            local list = _G[mapKey] or _G.OutfitSkins[mapKey]
+            _G[globalKey] = Yargi.pickFromMap(list, cfg[key])
+            lastConfig[key] = cfg[key]
+        end
+    end
+    if cfg.LobbyTheme then
+        _G.TargetLobbyThemeID = cfg.LobbyTheme
+        lastConfig.LobbyTheme = cfg.LobbyTheme
+    end
+    for _, entry in ipairs(WEAPON_CONFIG) do
+        local key, id = entry[1], entry[2]
+        local cfgKey = "W_" .. key
+        if cfg[cfgKey] ~= nil then
+            local idxTable = Yargi.isGrenadeId(id) and _G.GrenadeSkinIndex or _G.WeaponSkinIndex
+            idxTable[id] = cfg[cfgKey] + 1
+            lastConfig[key] = cfg[cfgKey]
+        end
+    end
+    for k, v in pairs(cfg) do
+        local gunID = k:match("^ExtraW_(%d+)$")
+        if gunID then
+            _G.ExtraWeaponSkinIndex[tonumber(gunID)] = v + 1
+        end
+    end
+    for _, entry in ipairs(VEHICLE_CONFIG) do
+        local key, id = entry[1], entry[2]
+        local cfgKey = "V_" .. key
+        if cfg[cfgKey] ~= nil then
+            _G.VehicleSkinIndex[id] = cfg[cfgKey] + 1
+            lastConfig[key] = cfg[cfgKey]
+        end
+    end
+    Yargi.updateHitEffectFromSuit()
+    Yargi.persistLoaded = true
+    return true
+end
+
+function Yargi.downloadEquippedBatch()
+    local ids = {}
+    local function add(id)
+        id = tonumber(id)
+        if id and id > 0 and not ids[id] then ids[id] = true end
+    end
+    add(_G.SuitSkin)
+    add(_G.BagSkin)
+    add(_G.HelmetSkin)
+    add(_G.ParachuteSkin)
+    add(_G.GliderSkin)
+    add(_G.PetSkin)
+    add(_G.PetDressSkin)
+    add(_G.HeadSkin)
+    add(_G.HairSkin)
+    add(_G.HatSkin)
+    add(_G.FaceSkin)
+    add(_G.ArmorSkin)
+    add(_G.GlovesSkin)
+    add(_G.HandEffectSkin)
+    add(_G.TargetLobbyThemeID)
+    add(_G.LastKillEffectSkin)
+    add(_G.FinalKillEffectSkin)
+    for baseId, idx in pairs(_G.WeaponSkinIndex) do
+        local skins = _G.skinIdMappings[baseId]
+        if skins and skins[idx] then add(skins[idx]) end
+    end
+    for baseId, idx in pairs(_G.GrenadeSkinIndex) do
+        local skins = _G.skinIdMappings[baseId]
+        if skins and skins[idx] then add(skins[idx]) end
+    end
+    for baseId, idx in pairs(_G.ExtraWeaponSkinIndex) do
+        local skins = _G.skinIdMappings[baseId]
+        if skins and skins[idx] then add(skins[idx]) end
+    end
+    for vType, idx in pairs(_G.VehicleSkinIndex) do
+        local skins = _G.VehskinIdMappings[vType]
+        if skins and skins[idx] then add(skins[idx]) end
+    end
+    for id in pairs(ids) do
+        Yargi.ensureDownload(id)
+    end
+end
+
 function Yargi.applyOutfitKey(key, globalKey, mapKey, newConfig, changed)
     if newConfig[key] == nil then return end
     if newConfig[key] ~= lastConfig[key] then
@@ -427,23 +613,30 @@ function _G.ReadConfigFile()
 
     local newConfig = Yargi.parseConfig(content)
     local changed = {outfit = false, weapon = false, vehicle = false, theme = false}
+    local persistMaster = Yargi.persistLoaded
 
     for _, entry in ipairs(OUTFIT_CONFIG) do
-        Yargi.applyOutfitKey(entry[1], entry[2], entry[3], newConfig, changed)
+        if not persistMaster or (newConfig[entry[1]] ~= nil and newConfig[entry[1]] ~= lastConfig[entry[1]]) then
+            Yargi.applyOutfitKey(entry[1], entry[2], entry[3], newConfig, changed)
+        end
     end
 
     for _, entry in ipairs(WEAPON_CONFIG) do
         local key, id = entry[1], entry[2]
-        local idxTable = Yargi.isGrenadeId(id) and _G.GrenadeSkinIndex or _G.WeaponSkinIndex
-        Yargi.applyWeaponKey(key, id, newConfig, idxTable, changed)
+        if not persistMaster or (newConfig[key] ~= nil and newConfig[key] ~= lastConfig[key]) then
+            local idxTable = Yargi.isGrenadeId(id) and _G.GrenadeSkinIndex or _G.WeaponSkinIndex
+            Yargi.applyWeaponKey(key, id, newConfig, idxTable, changed)
+        end
     end
 
     for _, entry in ipairs(VEHICLE_CONFIG) do
         local key, id = entry[1], entry[2]
         if newConfig[key] ~= nil and newConfig[key] ~= lastConfig[key] then
-            _G.VehicleSkinIndex[id] = newConfig[key] + 1
-            lastConfig[key] = newConfig[key]
-            changed.vehicle = true
+            if not persistMaster then
+                _G.VehicleSkinIndex[id] = newConfig[key] + 1
+                lastConfig[key] = newConfig[key]
+                changed.vehicle = true
+            end
         end
     end
 
@@ -453,9 +646,13 @@ function _G.ReadConfigFile()
         changed.theme = true
     end
 
+    if changed.outfit then Yargi.updateHitEffectFromSuit() end
+
     if changed.outfit or changed.weapon or changed.vehicle then
         Yargi.resetApplyCaches()
         _G.UpdateMyKillCounter = true
+        Yargi.savePersistState()
+        Yargi.downloadEquippedBatch()
     end
 
     if changed.outfit or changed.weapon or changed.vehicle or changed.theme then
@@ -661,6 +858,7 @@ function _G.get_skin_id(weaponID)
     end
     local skinID = skins[index] or skins[1] or weaponID
     Yargi.ensureDownload(skinID)
+    if skinID and skinID > 0 then _G.SkinLoadedCache[skinID] = true end
     return skinID
 end
 _G.get_skin_id2 = _G.get_skin_id
@@ -679,8 +877,23 @@ function Yargi.applyWeaponSkin(weapon, force)
         if targetSkin and targetSkin ~= 0 then
             define.TypeSpecificID = targetSkin
             weapon:SetWeaponSkin(define)
+            if weapon.synData then
+                pcall(function()
+                    local slotData = weapon.synData:Get(7)
+                    if slotData then
+                        local skinDefine = slua.IndexReference(slotData, "defineID")
+                        if skinDefine and skinDefine.TypeSpecificID ~= targetSkin then
+                            skinDefine.TypeSpecificID = targetSkin
+                            weapon.synData:Set(7, slotData)
+                        end
+                    end
+                end)
+            end
             if not Yargi.isGrenadeId(baseId) then
                 _G.apply_attachment(weapon, targetSkin)
+            end
+            if weapon.DelayHandleAvatarMeshChanged then
+                weapon:DelayHandleAvatarMeshChanged()
             end
             applyCache.weapon[cacheKey] = targetSkin
         end
@@ -717,6 +930,8 @@ function Yargi.setLevelSkin(avatarComp, applyData, idx, baseSkin, defaultId, slo
     if not eq or eq.SlotID ~= slotId or not baseSkin or baseSkin == 0 or baseSkin == defaultId then return end
     local level = 1
     if eq.AdditionalItemID and levelFn then level = levelFn(eq.AdditionalItemID) or 1 end
+    if level < 1 then level = 1 end
+    if level > 3 then level = 3 end
     local applied = baseSkin + (level - 1) * 1000
     if cache.value == applied and eq.ItemId == applied then return end
     Yargi.ensureDownload(baseSkin)
@@ -725,6 +940,33 @@ function Yargi.setLevelSkin(avatarComp, applyData, idx, baseSkin, defaultId, slo
     avatarComp:OnRep_BodySlotStateChanged()
     cache.base = baseSkin
     cache.value = applied
+end
+
+function _G.equip_character_avatar_match(uCharacter)
+    if not _G.IsPtrValid(uCharacter) or not uCharacter.AvatarComponent2 then return end
+    if _G.matchAvatarFullApplied then
+        return _G.equip_character_avatar_light(uCharacter)
+    end
+    _G.equip_character_avatar(uCharacter)
+    _G.matchAvatarFullApplied = true
+end
+
+function _G.equip_character_avatar_light(uCharacter)
+    if not _G.IsPtrValid(uCharacter) or not uCharacter.AvatarComponent2 then return end
+    local BackpackUtils = import("BackpackUtils")
+    if not BackpackUtils then return end
+    local avatarComp = uCharacter.AvatarComponent2
+    local applyData = avatarComp.NetAvatarData and avatarComp.NetAvatarData.SlotSyncData
+    if not applyData or not _G.IsPtrValid(applyData) then return end
+    local S = _G.CustSlotType
+    for i = 0, applyData:Num() - 1 do
+        Yargi.setLevelSkin(avatarComp, applyData, i, _G.BagSkin, 501001, S.BackpackEquipemtSlot,
+            BackpackUtils.GetEquipmentBagLevel, applyCache.bag)
+        Yargi.setLevelSkin(avatarComp, applyData, i, _G.HelmetSkin, 502001, S.HelmetEquipemtSlot,
+            BackpackUtils.GetEquipmentHelmetLevel, applyCache.helmet)
+        Yargi.setSlotSkin(avatarComp, applyData, i, _G.GlovesSkin, S.HandleEquipmentSlot, "glove")
+        Yargi.setSlotSkin(avatarComp, applyData, i, _G.ParachuteSkin, S.ParachuteEquipemtSlot, "chute")
+    end
 end
 
 function _G.equip_character_avatar(uCharacter)
@@ -824,6 +1066,28 @@ end
 -- WEAPONS / BACKPACK COATING
 -- =============================================================================
 
+function Yargi.applyGrenadesInBackpack(uChar, force)
+    if not _G.IsPtrValid(uChar) then return end
+    pcall(function()
+        local bp = uChar.BackpackComponent
+        if not bp or not bp.GetItemListByType then return end
+        local itemList = bp:GetItemListByType(6)
+        if not itemList then return end
+        for i = 0, itemList:Num() - 1 do
+            local item = itemList:Get(i)
+            if item and item.DefineID then
+                local tid = item.DefineID.TypeSpecificID
+                if Yargi.isGrenadeId(Yargi.getBaseWeaponId(tid)) then
+                    local skinId = _G.get_skin_id(Yargi.getBaseWeaponId(tid))
+                    if skinId and skinId ~= tid then
+                        item.DefineID.TypeSpecificID = skinId
+                    end
+                end
+            end
+        end
+    end)
+end
+
 function Yargi.applyAllPlayerWeapons(uChar, force)
     if not _G.IsPtrValid(uChar) then return end
     local curr = uChar:GetCurrentWeapon()
@@ -838,6 +1102,23 @@ function Yargi.applyAllPlayerWeapons(uChar, force)
             end
         end
     end
+    Yargi.applyGrenadesInBackpack(uChar, force)
+end
+
+function Yargi.applyExtraLobbyWeapons()
+    pcall(function()
+        local WardrobeGunLogic = require("client.slua.logic.wardrobe.logic_wardrobe_gun")
+        if not WardrobeGunLogic or not WardrobeGunLogic.UpdateExtraGunAvatar then return end
+        for gunID, idx in pairs(_G.ExtraWeaponSkinIndex) do
+            local skins = _G.skinIdMappings[gunID]
+            if skins and skins[idx] then
+                local skinRes = skins[idx]
+                local fake = Yargi.getFakeDepotByResID(skinRes)
+                local insID = fake and fake.insID or (Yargi.FAKE_INS_BASE + skinRes)
+                WardrobeGunLogic:UpdateExtraGunAvatar(gunID, insID)
+            end
+        end
+    end)
 end
 
 function _G.UpdateWeapon_BackPack_Appearance(PlayerController, force)
@@ -940,13 +1221,25 @@ function _G.ApplyLobbyTheme()
             end
             local ThemeVehicleManager = ModuleManager.GetModule(ModuleManager.LobbyModuleConfig.ThemeVehicleManager)
             if ThemeVehicleManager then
-                ThemeVehicleManager:ShowThemeVehicle()
-                ThemeVehicleManager:RefreshSpecialEffect()
+                if ThemeVehicleManager.ShowThemeVehicle then ThemeVehicleManager:ShowThemeVehicle() end
+                if ThemeVehicleManager.RefreshSpecialEffect then ThemeVehicleManager:RefreshSpecialEffect() end
+                if ThemeVehicleManager.RefreshGarageThemeVehicle then
+                    ThemeVehicleManager:RefreshGarageThemeVehicle()
+                end
             end
             _G.LastAppliedThemeID = themeID
         end
         local HallThemeUtils = require("client.logic.lobby.hall_theme_utils")
-        if HallThemeUtils then HallThemeUtils.themeVehicleShow = true end
+        if HallThemeUtils then
+            HallThemeUtils.themeVehicleShow = true
+            if HallThemeUtils.ShowThemeVehicle then HallThemeUtils.ShowThemeVehicle() end
+        end
+        pcall(function()
+            local GarageThemeSystem = ModuleManager.GetModule(ModuleManager.LobbyModuleConfig.GarageThemeSystem)
+            if GarageThemeSystem and GarageThemeSystem.RefreshGarageVehicles then
+                GarageThemeSystem:RefreshGarageVehicles()
+            end
+        end)
         local logic_lobby = require("client.slua.logic.lobby.logic_lobby_main")
         if logic_lobby and logic_lobby.RefreshLobbyUI then logic_lobby:RefreshLobbyUI() end
     end)
@@ -982,6 +1275,16 @@ end)
 -- HANDLERS
 -- =============================================================================
 
+function Yargi.applyAvatarToModel(model)
+    if _G.IsPtrValid(model) then
+        if Yargi.isInLobby() then
+            _G.equip_character_avatar(model)
+        else
+            _G.equip_character_avatar_match(model)
+        end
+    end
+end
+
 function _G.GameAvatarHandlerplayers()
     pcall(function()
         local pc = slua_GameFrontendHUD and slua_GameFrontendHUD:GetPlayerController()
@@ -991,7 +1294,12 @@ function _G.GameAvatarHandlerplayers()
             pc.HiggsBoson.bCallPreReplication = false
         end
         local uChar = pc:GetPlayerCharacterSafety()
-        if _G.IsPtrValid(uChar) then _G.equip_character_avatar(uChar) end
+        if not _G.IsPtrValid(uChar) then return end
+        if Yargi.isInLobby() then
+            _G.equip_character_avatar(uChar)
+        else
+            _G.equip_character_avatar_match(uChar)
+        end
     end)
 end
 
@@ -1002,13 +1310,19 @@ function _G.Lobby_Avatar_Handler()
         if TeamAvatarManager then
             local mainAvatar = TeamAvatarManager.GetMainAvatar()
             if _G.IsPtrValid(mainAvatar) then
-                local model = mainAvatar.GetModel and mainAvatar:GetModel()
-                if _G.IsPtrValid(model) then _G.equip_character_avatar(model) end
+                Yargi.applyAvatarToModel(mainAvatar.GetModel and mainAvatar:GetModel())
+            end
+            if DataMgr and DataMgr.roleData and TeamAvatarManager.GetAvatarByUid then
+                local myAvatar = TeamAvatarManager.GetAvatarByUid(DataMgr.roleData.uid)
+                if _G.IsPtrValid(myAvatar) and myAvatar ~= mainAvatar then
+                    Yargi.applyAvatarToModel(myAvatar.GetModel and myAvatar:GetModel())
+                end
             end
         end
         _G.GameAvatarHandlerplayers()
         _G.HandlePetLogic()
         _G.GameAvatarHandlerweapons()
+        Yargi.applyExtraLobbyWeapons()
     end)
 end
 
@@ -1114,6 +1428,9 @@ function Yargi.installKillInfoHook()
                 local uCharacter = pc and pc:GetPlayerCharacterSafety()
                 if not _G.IsPtrValid(uCharacter) then return end
                 if DamageRecordData.Causer ~= uCharacter:GetPlayerNameSafety() then return end
+                if _G.SuitSkin and _G.SuitSkin > 0 then
+                    DamageRecordData.CauserClothAvatarID = _G.SuitSkin
+                end
                 local currWeapon = uCharacter:GetCurrentWeapon()
                 if not _G.IsPtrValid(currWeapon) then return end
                 local DefineID = currWeapon:GetItemDefineID()
@@ -1285,13 +1602,96 @@ function _G.InstallOriginalHooks()
         if DeadBoxFeature and DeadBoxFeature.RPC_Multicast_PawnDie then
             local o_Die = DeadBoxFeature.RPC_Multicast_PawnDie
             DeadBoxFeature.RPC_Multicast_PawnDie = function(self, Loc, AvatarID)
-                if ItemUpgradeModule and AvatarID ~= 0 then
-                    local maxItem = ItemUpgradeModule:GetMaxLevelItem(AvatarID)
-                    if maxItem and maxItem ~= -1 then AvatarID = maxItem end
+                local boxAvatar = (_G.SuitSkin and _G.SuitSkin > 0) and _G.SuitSkin or AvatarID
+                if ItemUpgradeModule and boxAvatar ~= 0 then
+                    local maxItem = ItemUpgradeModule:GetMaxLevelItem(boxAvatar)
+                    if maxItem and maxItem ~= -1 then boxAvatar = maxItem end
                 end
-                return o_Die(self, Loc, AvatarID)
+                return o_Die(self, Loc, boxAvatar)
             end
         end
+
+        pcall(function()
+            local XSuitAvatarDataUtil = require("GameLua.Activity.Commercialize.GamePlay.XSuit.XSuitAvatarDataUtil")
+            if XSuitAvatarDataUtil and XSuitAvatarDataUtil.GenerateKillBroadcastItemID then
+                local o_KillBroadcast = XSuitAvatarDataUtil.GenerateKillBroadcastItemID
+                XSuitAvatarDataUtil.GenerateKillBroadcastItemID = function(self, ClothAvatarID, PlayerUID)
+                    if _G.SuitSkin and _G.SuitSkin > 0 then
+                        ClothAvatarID = _G.SuitSkin
+                    end
+                    return o_KillBroadcast(self, ClothAvatarID, PlayerUID)
+                end
+            end
+        end)
+
+        pcall(function()
+            local FeatureHitEffect = require("client.slua.traits.DetailComponent.FeatureComponent.FeatureTraits.FeatureHitEffect")
+            if FeatureHitEffect and FeatureHitEffect.PlayHitEffect then
+                local o_PlayHit = FeatureHitEffect.PlayHitEffect
+                FeatureHitEffect.PlayHitEffect = function(self, data)
+                    if _G.ActiveHitEffectResId and _G.ActiveHitEffectResId > 0 and data and data.config then
+                        local CDataTable = require("client.slua.config.ClientConfig.data_mgr")
+                        local eff = CDataTable.GetTableData("AvatarWeaponHitFXData", _G.ActiveHitEffectResId)
+                        if eff and eff.HitEffect and eff.HitEffect ~= "" then
+                            data.config.HitEffect = eff.HitEffect
+                        end
+                    end
+                    return o_PlayHit(self, data)
+                end
+            end
+        end)
+
+        pcall(function()
+            local wardrobe_data = require("client.slua.logic.wardrobe.wardrobe_data")
+            if wardrobe_data and wardrobe_data.CheckHasPermanentItem then
+                local o_Check = wardrobe_data.CheckHasPermanentItem
+                wardrobe_data.CheckHasPermanentItem = function(self, itemId, source)
+                    if Yargi.isFakeRes(itemId) then return true end
+                    return o_Check(self, itemId, source)
+                end
+            end
+        end)
+
+        pcall(function()
+            local LogicParticleEmote = require("client.slua.logic.wardrobe.LogicParticleEmote")
+            if LogicParticleEmote then
+                if LogicParticleEmote.HasUnlockParticle then
+                    LogicParticleEmote.HasUnlockParticle = function() return true end
+                end
+                if LogicParticleEmote.IsUnLockProp then
+                    LogicParticleEmote.IsUnLockProp = function() return true end
+                end
+            end
+        end)
+
+        pcall(function()
+            local ItemUpgradeModule = ModuleManager.GetModule(ModuleManager.CommonModuleConfig.ItemUpgradeModule)
+            if ItemUpgradeModule then
+                if ItemUpgradeModule.IsWeaponEmoteUnlocked then
+                    ItemUpgradeModule.IsWeaponEmoteUnlocked = function() return true end
+                end
+                if ItemUpgradeModule.IsWeaponEmoteUnlockedWithOutCheckWeapon then
+                    ItemUpgradeModule.IsWeaponEmoteUnlockedWithOutCheckWeapon = function() return true end
+                end
+            end
+        end)
+
+        pcall(function()
+            local GrenadeAvatarComponent = require("GameLua.Mod.Library.GamePlay.Avatar.Component.GrenadeAvatarComponent")
+            if GrenadeAvatarComponent and GrenadeAvatarComponent.CheckHasOverrideFx then
+                local o_Check = GrenadeAvatarComponent.CheckHasOverrideFx
+                GrenadeAvatarComponent.CheckHasOverrideFx = function(self, PlayerController, GrenadeSkinID)
+                    if GrenadeSkinID and GrenadeSkinID > 0 then
+                        local baseId = Yargi.getBaseWeaponId(GrenadeSkinID)
+                        local mapped = _G.get_skin_id(baseId)
+                        if mapped and mapped ~= GrenadeSkinID then
+                            GrenadeSkinID = mapped
+                        end
+                    end
+                    return o_Check(self, PlayerController, GrenadeSkinID)
+                end
+            end
+        end)
 
         local function hookKillEffect(mod)
             if not mod then return end
@@ -1397,7 +1797,7 @@ function _G.DisableHiggsBoson()
 end
 
 -- =============================================================================
--- WARDROBE / ARMORY INTEGRATION v2.2 (depot inject + realtime 0.1s)
+-- WARDROBE / ARMORY INTEGRATION v2.4
 -- =============================================================================
 
 Yargi.fakeDepot = {}
@@ -1407,6 +1807,9 @@ Yargi.depotInjectReady = false
 Yargi.FAKE_INS_BASE = 8800000000
 Yargi.lastDepotInject = 0
 Yargi.lastArmoryRebuild = 0
+Yargi.dumpSkinLoaded = false
+Yargi.dumpSkinInProgress = false
+Yargi.statusHooksInstalled = false
 
 function Yargi.isInLobby()
     local ok, ret = pcall(function()
@@ -1423,15 +1826,31 @@ end
 
 function Yargi.applySkinsNow()
     pcall(function()
+        applyCache.weapon = {}
+        Yargi.savePersistState()
+        Yargi.downloadEquippedBatch()
         if Yargi.isInLobby() then
             _G.Lobby_Avatar_Handler()
         else
-            _G.GameAvatarHandlerplayers()
-            _G.HandlePetLogic()
+            local pc = slua_GameFrontendHUD and slua_GameFrontendHUD:GetPlayerController()
+            local uChar = _G.IsPtrValid(pc) and pc:GetPlayerCharacterSafety()
+            if _G.IsPtrValid(uChar) then _G.equip_character_avatar_match(uChar) end
             _G.GameAvatarHandlerweapons()
             _G.GameAvatarHandlerBagPack()
-            local pc = slua_GameFrontendHUD and slua_GameFrontendHUD:GetPlayerController()
             if _G.IsPtrValid(pc) then _G.UpdateWeapon_BackPack_Appearance(pc, true) end
+        end
+    end)
+end
+
+function Yargi.matchRealtimeTick()
+    if Yargi.isInLobby() then return end
+    pcall(function()
+        local pc = slua_GameFrontendHUD and slua_GameFrontendHUD:GetPlayerController()
+        if not _G.IsPtrValid(pc) then return end
+        local uChar = pc:GetPlayerCharacterSafety()
+        if _G.IsPtrValid(uChar) then
+            Yargi.applyAllPlayerWeapons(uChar, true)
+            _G.equip_character_avatar_match(uChar)
         end
     end)
 end
@@ -1484,11 +1903,15 @@ end
 function Yargi.registerFakeResID(resID)
     resID = tonumber(resID)
     if not resID or resID == 0 then return end
-    if Yargi.fakeResSet[resID] then return end
+    if Yargi.fakeResSet[resID] then
+        _G.SkinLoadedCache[resID] = true
+        return
+    end
     local item = Yargi.buildFakeDepotItem(resID)
     if not item then return end
     Yargi.fakeDepot[item.insID] = item
     Yargi.fakeResSet[resID] = item.insID
+    _G.SkinLoadedCache[resID] = true
 end
 
 function Yargi.registerAllFakeItems()
@@ -1504,6 +1927,257 @@ function Yargi.registerAllFakeItems()
     if _G.LobbyThemeSkins then
         for _, resID in ipairs(_G.LobbyThemeSkins) do Yargi.registerFakeResID(resID) end
     end
+end
+
+function Yargi.refreshOutfitMaps()
+    _G.SuitSkinsMap = _G.OutfitSkins.Suit
+    _G.BagSkinsMap = _G.OutfitSkins.Bag
+    _G.HelmetSkinsMap = _G.OutfitSkins.Helmet
+    _G.ParachutSkinsMap = _G.OutfitSkins.Parachute
+    _G.GliderSkinsMap = _G.OutfitSkins.Glider
+    _G.PetSkinsMap = _G.OutfitSkins.Pet
+end
+
+function Yargi.appendSkinToMapping(baseId, skinId)
+    baseId = tonumber(baseId)
+    skinId = tonumber(skinId)
+    if not baseId or not skinId or skinId == baseId then return end
+    local list = _G.skinIdMappings[baseId]
+    if not list then
+        list = { baseId }
+        _G.skinIdMappings[baseId] = list
+    end
+    for _, v in ipairs(list) do
+        if v == skinId then return end
+    end
+    list[#list + 1] = skinId
+end
+
+function Yargi.appendOutfitId(listKey, resID)
+    resID = tonumber(resID)
+    if not resID or resID == 0 then return end
+    local list = _G.OutfitSkins[listKey]
+    if not list then
+        _G.OutfitSkins[listKey] = { resID }
+        return
+    end
+    for _, v in ipairs(list) do
+        if v == resID then return end
+    end
+    list[#list + 1] = resID
+end
+
+function Yargi.categorizeDumpItem(id, itemCfg)
+    id = tonumber(id)
+    if not id or id < 100000 or not itemCfg then return false end
+    if itemCfg.ItemType and ENUM_ITEM_TYPE and itemCfg.ItemType == ENUM_ITEM_TYPE.Hall_Theme then
+        _G.LobbyThemeSkins = _G.LobbyThemeSkins or {}
+        for _, v in ipairs(_G.LobbyThemeSkins) do
+            if v == id then return true end
+        end
+        _G.LobbyThemeSkins[#_G.LobbyThemeSkins + 1] = id
+    elseif id >= 1501001000 and id < 1501016000 then
+        Yargi.appendOutfitId("Bag", id)
+    elseif id >= 1502001000 and id < 1502016000 then
+        Yargi.appendOutfitId("Helmet", id)
+    elseif (id >= 402000 and id < 403000) or (id >= 452000 and id < 453000) then
+        Yargi.appendOutfitId("Gloves", id)
+    elseif id >= 1405000 and id < 1410000 and itemCfg.WardrobeMainTab == 1 then
+        Yargi.appendOutfitId("Suit", id)
+    elseif id >= 703000 and id < 704000 then
+        Yargi.appendOutfitId("Parachute", id)
+    elseif id >= 4151000 and id < 4152000 then
+        Yargi.appendOutfitId("Glider", id)
+    elseif itemCfg.WardrobeMainTab and itemCfg.WardrobeMainTab > 0 then
+        if itemCfg.WardrobeMainTab == 1 or (itemCfg.ItemSubType and itemCfg.ItemSubType >= 400) then
+            Yargi.appendOutfitId("Suit", id)
+        end
+    else
+        return false
+    end
+    return true
+end
+
+function Yargi.processDumpItemId(id, itemCfg, CDataTable)
+    id = tonumber(id)
+    if not id then return false end
+    local wmap = CDataTable.GetTableData("WeaponSkinMapping", id)
+    if wmap and (wmap.WeaponID or wmap.WeaponId) then
+        local baseId = wmap.WeaponID or wmap.WeaponId
+        Yargi.appendSkinToMapping(baseId, id)
+        Yargi.registerFakeResID(id)
+        return true
+    end
+    if not itemCfg then itemCfg = CDataTable.GetTableData("Item", id) end
+    if not itemCfg or not itemCfg.BPID or itemCfg.BPID == 0 then return false end
+    Yargi.registerFakeResID(id)
+    Yargi.categorizeDumpItem(id, itemCfg)
+    return true
+end
+
+function Yargi.runMemorySkinDump(force)
+    if Yargi.dumpSkinInProgress then return end
+    if Yargi.dumpSkinLoaded and not force then return end
+    pcall(function()
+        local async = require("client.common.async")
+        Yargi.dumpSkinInProgress = true
+        async.Run(function(co)
+            local CDataTable = require("client.slua.config.ClientConfig.data_mgr")
+            local added, batch, batchSize = 0, 0, 200
+
+            local wTable = CDataTable.GetTable("WeaponSkinMapping")
+            if wTable then
+                for skinId, cfg in pairs(wTable) do
+                    local sid = tonumber(skinId)
+                    local wid = cfg and (cfg.WeaponID or cfg.WeaponId)
+                    if sid and wid then
+                        Yargi.appendSkinToMapping(wid, sid)
+                        Yargi.registerFakeResID(sid)
+                        added = added + 1
+                    end
+                    batch = batch + 1
+                    if batch >= batchSize then batch = 0; async.Yield(co) end
+                end
+            end
+
+            local ItemTable = CDataTable.GetTable("Item")
+            if ItemTable then
+                for id, v in pairs(ItemTable) do
+                    local itemId = tonumber(v.ID or id)
+                    if itemId and v.BPID and v.BPID ~= 0 then
+                        if Yargi.processDumpItemId(itemId, v, CDataTable) then
+                            added = added + 1
+                        end
+                    end
+                    batch = batch + 1
+                    if batch >= batchSize then batch = 0; async.Yield(co) end
+                end
+            end
+
+            pcall(function()
+                local backpack = UE4 and UE4.UBackpackUtils and UE4.UBackpackUtils.StaticClass()
+                if backpack and backpack.GetItemIDs then
+                    local items = backpack:GetItemIDs()
+                    if items then
+                        for i = 0, items:Num() - 1 do
+                            local itemID = items:Get(i)
+                            if Yargi.processDumpItemId(itemID, nil, CDataTable) then
+                                added = added + 1
+                            end
+                            batch = batch + 1
+                            if batch >= batchSize then batch = 0; async.Yield(co) end
+                        end
+                    end
+                end
+            end)
+
+            Yargi.refreshOutfitMaps()
+            Yargi.dumpSkinLoaded = true
+            Yargi.dumpSkinInProgress = false
+            print("[YARGI] Memory skin dump done, items=" .. tostring(added))
+            pcall(function()
+                Yargi.injectFakeItemsToDepot()
+                Yargi.injectArmorySkinList(true)
+            end)
+        end)
+    end)
+end
+
+function Yargi.installBackpackSkinHook()
+    if _G.BackpackSkinHooked then return end
+    pcall(function()
+        local function wrapWeaponUI(WIIB)
+            if not WIIB or not WIIB.__inner_impl or not WIIB.__inner_impl.UpdateWeaponAppearanceInfo then return end
+            local old_UpdateWeaponAppearanceInfo = WIIB.__inner_impl.UpdateWeaponAppearanceInfo
+            WIIB.__inner_impl.UpdateWeaponAppearanceInfo = function(self, TypeSpecificID, BattleData, DragOrigin)
+                local baseId = Yargi.getBaseWeaponId(TypeSpecificID)
+                local skin_id = _G.get_skin_id(baseId)
+                local ItemData = _G.rawGetTableData("Item", TypeSpecificID)
+                if not skin_id or skin_id == 0 or not ItemData then
+                    return old_UpdateWeaponAppearanceInfo(self, TypeSpecificID, BattleData, DragOrigin)
+                end
+                _G.SkinLoadedCache[skin_id] = true
+                if self.__last_skin_applied == skin_id then return end
+                self.__last_skin_applied = skin_id
+                old_UpdateWeaponAppearanceInfo(self, skin_id, BattleData, DragOrigin)
+                pcall(function()
+                    self.TypeSpecificIDTemp = TypeSpecificID
+                    self.ItemID = TypeSpecificID
+                    if self.UIRoot then
+                        self.UIRoot.ItemID = TypeSpecificID
+                        if self.UIRoot.TextBlock_WeaponName and ItemData.ItemName then
+                            self.UIRoot.TextBlock_WeaponName:SetText(ItemData.ItemName)
+                        end
+                    end
+                    if self.UpdateBullet then self:UpdateBullet() end
+                    if self.UpdateWeaponAttachment then self:UpdateWeaponAttachment() end
+                end)
+            end
+        end
+        local ok, WIIB = pcall(require, "GameLua.Mod.BaseMod.Client.Backpack.WeaponInfoItemBase")
+        if ok then wrapWeaponUI(WIIB) end
+        pcall(function()
+            local ok2, GLIB = pcall(require, "GameLua.Mod.BaseMod.Client.InGameUI.NewCircleChooseUI.GrenadeListItemBP")
+            if ok2 and GLIB and GLIB.SetData then
+                local o_SetData = GLIB.SetData
+                GLIB.SetData = function(self, BattleItemData, bIsMedThrow)
+                    if BattleItemData and BattleItemData.DefineID then
+                        local tid = BattleItemData.DefineID.TypeSpecificID
+                        local baseId = Yargi.getBaseWeaponId(tid)
+                        if Yargi.isGrenadeId(baseId) then
+                            local skinId = _G.get_skin_id(baseId)
+                            if skinId and skinId > 0 then
+                                BattleItemData.DefineID.TypeSpecificID = skinId
+                            end
+                        end
+                    end
+                    return o_SetData(self, BattleItemData, bIsMedThrow)
+                end
+            end
+        end)
+        _G.BackpackSkinHooked = true
+    end)
+end
+
+function Yargi.onReturnToLobby()
+    applyCache.weapon = {}
+    applyCache.avatar = {}
+    _G.matchAvatarFullApplied = false
+    Yargi.depotInjectReady = false
+    Yargi.lastDepotInject = 0
+    Yargi.lastArmoryRebuild = 0
+    Yargi.loadPersistState()
+    Yargi.runMemorySkinDump(true)
+    if Yargi.wardrobeHooksInstalled then
+        Yargi.injectFakeItemsToDepot()
+        Yargi.injectArmorySkinList(true)
+    end
+    pcall(_G.ReadConfigFile)
+    Yargi.downloadEquippedBatch()
+    pcall(_G.Lobby_Avatar_Handler)
+    pcall(_G.ApplyLobbyTheme)
+end
+
+function Yargi.installStatusHooks()
+    if Yargi.statusHooksInstalled then return end
+    pcall(function()
+        local EventSystem = require("client.slua.event.EventSystem")
+        local GameStatus = require("client.logic.gamestatus.GameStatus")
+        EventSystem:RegisterEvent(EVENTTYPE_STATE, EVENTID_ON_MODE_POST_SWITCH, function(_, preState, nextState)
+            pcall(function()
+                if GameStatus.IsInLobbyOrMainCity and GameStatus.IsInLobbyOrMainCity() then
+                    Yargi.onReturnToLobby()
+                elseif nextState == GameStatus.Fighting then
+                    applyCache.weapon = {}
+                    applyCache.avatar = {}
+                    _G.matchAvatarFullApplied = false
+                    Yargi.loadPersistState()
+                    Yargi.downloadEquippedBatch()
+                end
+            end)
+        end)
+        Yargi.statusHooksInstalled = true
+    end)
 end
 
 function Yargi.ensureDepotInjected()
@@ -1633,7 +2307,29 @@ function Yargi.syncWeaponFromResId(weaponId, skinResId)
     end
     Yargi.resetApplyCaches()
     _G.UpdateMyKillCounter = true
+    Yargi.updateHitEffectFromSuit()
     Yargi.applySkinsNow()
+end
+
+function Yargi.syncExtraWeaponFromResId(weaponId, skinResId)
+    weaponId = tonumber(weaponId)
+    skinResId = tonumber(skinResId)
+    if not weaponId then return end
+    local baseId = weaponId
+    if skinResId and skinResId > 0 then
+        baseId = Yargi.getBaseWeaponId(skinResId)
+    end
+    local skins = _G.skinIdMappings[baseId] or Yargi.buildDynamicWeaponSkins(baseId)
+    local pickedIndex = 1
+    if skinResId and skinResId > 0 then
+        for i, sid in ipairs(skins) do
+            if sid == skinResId then pickedIndex = i; break end
+        end
+    end
+    _G.ExtraWeaponSkinIndex[baseId] = pickedIndex
+    Yargi.applyExtraLobbyWeapons()
+    Yargi.savePersistState()
+    Yargi.downloadEquippedBatch()
 end
 
 function Yargi.syncOutfitFromResId(resID)
@@ -1647,6 +2343,7 @@ function Yargi.syncOutfitFromResId(resID)
                 if id == resID then
                     _G[globalKey] = resID
                     Yargi.writeConfigValue(key, i - 1)
+                    if globalKey == "SuitSkin" then Yargi.updateHitEffectFromSuit() end
                     Yargi.resetApplyCaches()
                     Yargi.applySkinsNow()
                     if key == "LobbyTheme" or (_G.TargetLobbyThemeID and resID == _G.TargetLobbyThemeID) then
@@ -1676,6 +2373,7 @@ function Yargi.syncOutfitFromResId(resID)
         if not itemCfg then return end
         if itemCfg.WardrobeMainTab == 1 or (itemCfg.ItemSubType and itemCfg.ItemSubType >= 400) then
             _G.SuitSkin = resID
+            Yargi.updateHitEffectFromSuit()
             Yargi.resetApplyCaches()
             Yargi.applySkinsNow()
         elseif itemCfg.ItemType and ENUM_ITEM_TYPE and itemCfg.ItemType == ENUM_ITEM_TYPE.Hall_Theme then
@@ -1774,6 +2472,8 @@ function Yargi.localEquipOutfit(fake, insID, extra)
     end)
 
     Yargi.syncOutfitFromResId(fake.resID)
+    Yargi.savePersistState()
+    Yargi.downloadEquippedBatch()
     return true
 end
 
@@ -1794,9 +2494,13 @@ function Yargi.localInstallWeaponSkin(client_data, weapon_id, instanceID)
 end
 
 function Yargi.wardrobeMaintainTick()
+    if not _G.BackpackSkinHooked then Yargi.installBackpackSkinHook() end
     if not Yargi.wardrobeHooksInstalled then
         Yargi.InstallWardrobeHooks()
         return
+    end
+    if not Yargi.dumpSkinLoaded and not Yargi.dumpSkinInProgress then
+        Yargi.runMemorySkinDump()
     end
     if not Yargi.isInLobby() then return end
     local now = os.clock()
@@ -1959,6 +2663,15 @@ function Yargi.InstallWardrobeHooks()
             end
         end
 
+        local o_PutOnExtraGun = WardrobeGunLogic.PutOnExtraGunAvatar
+        WardrobeGunLogic.PutOnExtraGunAvatar = function(self, gunID, skinID, planID)
+            local ret = o_PutOnExtraGun(self, gunID, skinID, planID)
+            if gunID and skinID and skinID > 0 then
+                Yargi.syncExtraWeaponFromResId(gunID, skinID)
+            end
+            return ret
+        end
+
         local ArmorySystem = require("client.logic.armory.logic_armory")
 
         local o_GetSkinByWeapon = ArmorySystem.GetSkinListByWeaponID
@@ -2058,22 +2771,27 @@ end)
 Yargi.installKillInfoHook()
 _G.loadKillCountFromFile()
 Yargi.registerAllFakeItems()
+Yargi.loadPersistState()
 _G.ReadConfigFile()
+Yargi.updateHitEffectFromSuit()
+Yargi.downloadEquippedBatch()
 _G.ApplyLobbyTheme()
 _G.InstallOriginalHooks()
 Yargi.InstallWardrobeHooks()
+Yargi.installStatusHooks()
+Yargi.installBackpackSkinHook()
+Yargi.runMemorySkinDump()
 
 local TXtime_ticker = require("common.time_ticker")
 _G.Mytimer_ticker = TXtime_ticker
 
 if _G.Mytimer_ticker then
-    _G.Mytimer_ticker.AddTimerLoop(0, function() pcall(_G.GameAvatarHandlerweapons) end, -1, 0.12)
-    _G.Mytimer_ticker.AddTimerLoop(0, function() pcall(_G.GameAvatarHandlerBagPack) end, -1, 0.15)
+    _G.Mytimer_ticker.AddTimerLoop(0, function() pcall(Yargi.matchRealtimeTick) end, -1, 0.15)
     _G.Mytimer_ticker.AddTimerLoop(0, function() pcall(_G.GameAvatarHandlervehicles) end, -1, 0.35)
     _G.Mytimer_ticker.AddTimerLoop(0, function() pcall(_G.GameAvatarHandlerkillcounter) end, -1, 0.25)
     _G.Mytimer_ticker.AddTimerLoop(0, function() pcall(_G.FileWatcher) end, -1, 0.25)
     _G.Mytimer_ticker.AddTimerLoop(0, function() pcall(_G.DisableHiggsBoson) end, -1, 0.50)
-    _G.Mytimer_ticker.AddTimerLoop(0, function() pcall(_G.ReadConfigFile) end, -1, 0.35)
+    _G.Mytimer_ticker.AddTimerLoop(0, function() pcall(_G.ReadConfigFile) end, -1, 0.30)
     _G.Mytimer_ticker.AddTimerLoop(0, function()
         pcall(function()
             if Yargi.isInLobby() then
@@ -2083,17 +2801,19 @@ if _G.Mytimer_ticker then
                 _G.HandlePetLogic()
             end
         end)
-    end, -1, 0.20)
-    _G.Mytimer_ticker.AddTimerLoop(0, function() pcall(Yargi.wardrobeMaintainTick) end, -1, 8.0)
+    end, -1, 0.25)
+    _G.Mytimer_ticker.AddTimerLoop(0, function() pcall(Yargi.wardrobeMaintainTick) end, -1, 10.0)
     _G.Mytimer_ticker.AddTimerLoop(1, function() pcall(_G.InitializeConnectionGuard) end, -1, 1)
     _G.Mytimer_ticker.AddTimerLoop(1, function() pcall(_G.InitializeGameplayBypass) end, -1, 1)
     _G.Mytimer_ticker.AddTimerOnce(0.5, function() pcall(Yargi.InstallWardrobeHooks) end)
     _G.Mytimer_ticker.AddTimerOnce(1, function() pcall(_G.InstallKillCounterUIHooks) end)
     _G.Mytimer_ticker.AddTimerOnce(2, function() pcall(_G.InstallKillCounterUIHooks) end)
     _G.Mytimer_ticker.AddTimerOnce(3, function() pcall(Yargi.InstallWardrobeHooks) end)
+    _G.Mytimer_ticker.AddTimerOnce(2, function() pcall(Yargi.installBackpackSkinHook) end)
+    _G.Mytimer_ticker.AddTimerOnce(5, function() pcall(Yargi.runMemorySkinDump) end)
     _G.YargiEngine.Loaded = true
 end
 
 _G.YargiEngine.Start = function()
-    print("[YARGI ENGINE v2.3] Outfit fix + perf + lobby theme depot")
+    print("[YARGI ENGINE v3.0] Persist lobby picks | match suit | grenade | extras")
 end
