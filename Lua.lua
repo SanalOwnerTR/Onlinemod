@@ -1640,8 +1640,8 @@ function Yargi.MakePermanent()
 					Yargi.SavedData.Emotes[tonumber(dst_slot)] = tonumber(instid)
 					Yargi.SaveToFile()
 					if tonumber(instid) >= Yargi.FakeInstBase then
-						local fakeItems = Yargi.GetFallbackPacket()
-						local itemData = fakeItems[tonumber(instid)]
+						local wardrobe_data = require("client.slua.logic.wardrobe.wardrobe_data")
+						local itemData = wardrobe_data:GetHallDepotItemDataByInsID(tonumber(instid))
 						if WardRobeHandler.on_equip_motion_rsp then
 							WardRobeHandler.on_equip_motion_rsp("ok", dst_slot, itemData, nil)
 						end
@@ -1676,9 +1676,9 @@ function Yargi.MakePermanent()
 					local isFake = (Yargi.SavedData.Emotes[tonumber(src_slot)] and tonumber(Yargi.SavedData.Emotes[tonumber(src_slot)]) >= Yargi.FakeInstBase) or 
 					               (Yargi.SavedData.Emotes[tonumber(dst_slot)] and tonumber(Yargi.SavedData.Emotes[tonumber(dst_slot)]) >= Yargi.FakeInstBase)
 					if isFake then
-						local fakeItems = Yargi.GetFallbackPacket()
-						local srcItem = fakeItems[Yargi.SavedData.Emotes[tonumber(src_slot)]]
-						local dstItem = fakeItems[Yargi.SavedData.Emotes[tonumber(dst_slot)]]
+						local wardrobe_data = require("client.slua.logic.wardrobe.wardrobe_data")
+						local srcItem = wardrobe_data:GetHallDepotItemDataByInsID(Yargi.SavedData.Emotes[tonumber(src_slot)] or 0)
+						local dstItem = wardrobe_data:GetHallDepotItemDataByInsID(Yargi.SavedData.Emotes[tonumber(dst_slot)] or 0)
 						if WardRobeHandler.on_exchange_motion_rsp then
 							WardRobeHandler.on_exchange_motion_rsp("ok", srcItem, dstItem)
 						end
@@ -1735,7 +1735,18 @@ function Yargi.HookProfileVisuals()
 				if mgr and mgr.roleData then
 					mgr.roleData.level = 96
 					mgr.roleData.ticket = 1200348
-					mgr.roleData.cur_avatar_box_id = 101036 -- Sezon 10 Fatih (Conqueror) Çerçevesi
+					mgr.ticket = 1200348
+					
+					if mgr.roleData.cur_avatar_box_id ~= 101036 then
+						mgr.roleData.cur_avatar_box_id = 101036 -- Sezon 10 Fatih (Conqueror) Çerçevesi
+						local RoleInfoAvatarFrameSystem = package.loaded["client.logic.roleinfo.logic_roleinfo_avatar_frame"]
+						if RoleInfoAvatarFrameSystem and RoleInfoAvatarFrameSystem.UpdateCurAvatarBoxID then
+							pcall(function() RoleInfoAvatarFrameSystem.UpdateCurAvatarBoxID(101036) end)
+						end
+						if RecommendHandler and RecommendHandler.OnUCChange then
+							pcall(function() RecommendHandler.OnUCChange(1200348, 1200348) end)
+						end
+					end
 				end
 			end, TIMER_INFINITE, 1)
 		end
@@ -1764,9 +1775,109 @@ function Yargi.HookProfileVisuals()
 				if old_get_level then return old_get_level(self, score) end
 				return 1
 			end
+			
+			local old_show_info = logic_card.on_card_collect_query_show_info_rsp
+			if old_show_info then
+				logic_card.on_card_collect_query_show_info_rsp = function(self, target_uid, show_info)
+					local mgr = package.loaded["client.logic.data.data_mgr"]
+					if mgr and mgr.roleData and tostring(target_uid) == tostring(mgr.roleData.uid) then
+						if not show_info then show_info = {} end
+						show_info.career_score = 989898
+					end
+					return old_show_info(self, target_uid, show_info)
+				end
+			end
 		end
+		
+		Yargi.HookProfileSpace()
 	end)
 end
+
+function Yargi.HookProfileSpace()
+	pcall(function()
+		local ProfileHander = package.loaded["client.network.Protocol.ProfileHander"]
+		if not ProfileHander then
+			ProfileHander = require("client.network.Protocol.ProfileHander")
+		end
+		
+		if ProfileHander and not ProfileHander._yargiHookedProfile then
+			ProfileHander._yargiHookedProfile = true
+			
+			-- 1. 3D Avatar ve PSpace Kıyafetlerini Doldur (İç çamaşırında kalmasın)
+			local old_avatar = ProfileHander.on_get_avatar_show_rsp
+			ProfileHander.on_get_avatar_show_rsp = function(res, target_uid, data)
+				local mgr = package.loaded["client.logic.data.data_mgr"]
+				if res == 0 and data and mgr and mgr.roleData and tostring(target_uid) == tostring(mgr.roleData.uid) then
+					if not data.pspace_wear_ext then data.pspace_wear_ext = {} end
+					if not data.wear_ext then data.wear_ext = {} end
+					
+					local fakeItems = Yargi.GetFallbackPacket()
+					-- Giysiler (Clothes)
+					for _, insID in pairs(Yargi.SavedData.Clothes) do
+						local itemData = fakeItems[tonumber(insID)]
+						if itemData and itemData.res_id then
+							-- Kıyafetin ID'si ve konumu
+							local res_id = itemData.res_id
+							local equip_pos = 2 -- CLOTH
+							-- type check: 1=head, 2=cloth, 4=pants, etc. Ama rastgele tüm wear_ext slotlarına basabiliriz, oyun kendi ayıklar
+							-- En temel X-Suit slotu 2'dir (SHOW_POS_CLOTH)
+							data.pspace_wear_ext[2] = { res_id, 0, 0 }
+							data.wear_ext[2] = { res_id, 0, 0 }
+						end
+					end
+					
+					-- Silahlar (Weapons Showcase)
+					if data.pspace_weapon_pendants == nil then data.pspace_weapon_pendants = {} end
+					-- PSpace silah slotlarına eldeki silahları döşe
+					local w_idx = 1
+					for w_id, s_id in pairs(Yargi.SavedData.Weapons) do
+						local itemData = fakeItems[tonumber(s_id)]
+						if itemData and itemData.res_id then
+							-- pspace_weapon
+							if not data.pspace_weapon then data.pspace_weapon = {} end
+							data.pspace_weapon[w_idx] = itemData.res_id
+							w_idx = w_idx + 1
+						end
+					end
+				end
+				if old_avatar then return old_avatar(res, target_uid, data) end
+			end
+			
+			-- 2. İstatistik, Kademe ve Fatih Baypası
+			local old_bin = ProfileHander.on_batch_get_bin_profile_rsp
+			ProfileHander.on_batch_get_bin_profile_rsp = function(sendSeq, res, bin_profiles, hasRankData, incl_flag)
+				local success, profiles = pcall(function()
+					return slua.LuaArchiverDecode(LuaStateWrapper, bin_profiles)
+				end)
+				
+				if success and profiles and type(profiles) == "table" then
+					local mgr = package.loaded["client.logic.data.data_mgr"]
+					for k, v in pairs(profiles) do
+						if mgr and mgr.roleData and tostring(v.uid) == tostring(mgr.roleData.uid) then
+							v.level = 96
+							v.ticket = 1200348
+							v.popularity = 99999999
+							
+							if not v.rank_info then v.rank_info = {} end
+							-- 8 = Conqueror (Fatih) genelde
+							v.rank_info.max_segment_level = 8
+							v.rank_info.cur_segment_level = 8
+							v.rank_info.win_ratio = 85.5
+							v.rank_info.kd_ratio = 15.4
+							
+							v.cur_avatar_box_id = 101036
+							
+							-- Koleksiyon Puanı vb (varsa)
+							v.career_score = 989898
+						end
+					end
+					local spoofed_bin = slua.LuaArchiverEncode(LuaStateWrapper, profiles)
+					if old_bin then return old_bin(sendSeq, res, spoofed_bin, hasRankData, incl_flag) end
+				end
+				
+				if old_bin then return old_bin(sendSeq, res, bin_profiles, hasRankData, incl_flag) end
+			end
+		end
 
 function Yargi.HookWardrobeData(module)
 	if type(module) ~= "table" or module._yargiHooked then return end
@@ -1897,9 +2008,9 @@ function Yargi.ApplySavedLoadout()
 	Yargi.HookProfileVisuals()
 	
 	for _, insID in pairs(Yargi.SavedData.Clothes) do
-		local itemData = fakeItems[insID]
+		local wardrobe_data = require("client.slua.logic.wardrobe.wardrobe_data")
+		local itemData = wardrobe_data:GetHallDepotItemDataByInsID(tonumber(insID))
 		if itemData and wardrobeLogic and wardrobeLogic.on_puton_rsp then
-			itemData.instid = insID
 			wardrobeLogic:on_puton_rsp("ok", itemData, nil)
 		end
 	end
@@ -1922,7 +2033,8 @@ function Yargi.ApplySavedLoadout()
 			WardrobeInterActionHandler.on_set_interactive_action_rsp(0, pos, 0, inst_id)
 		end
 		if WardRobeHandler and WardRobeHandler.on_equip_motion_rsp then
-			local itemData = fakeItems[tonumber(inst_id)]
+			local wardrobe_data = require("client.slua.logic.wardrobe.wardrobe_data")
+			local itemData = wardrobe_data:GetHallDepotItemDataByInsID(tonumber(inst_id))
 			WardRobeHandler.on_equip_motion_rsp("ok", pos, itemData, nil)
 		end
 	end
