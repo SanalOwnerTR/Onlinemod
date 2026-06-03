@@ -1,4 +1,4 @@
-/unmute @t_G.YARGI_ALIVE = true
+_G.YARGI_ALIVE = true
 _G.YargiEngine = _G.YargiEngine or {}
 _G.YargiEngine.Version = "4.0"
 
