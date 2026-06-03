@@ -1,195 +1,150 @@
 _G.YARGI_ALIVE = true
 _G.YargiEngine = _G.YargiEngine or {}
-_G.YargiEngine.Version = "4.0"
+_G.YargiEngine.Version = "5.0"
 
 local Yargi = {}
 Yargi.FakeInstBase = 2000000000
-Yargi.DumpedItems = nil
+Yargi.StartInstId = Yargi.FakeInstBase
 
-local function SkinDumpkod()
-	pcall(function()
-		local async = require("client.common.async")
-		async.Run(function(co)
-			local packageName = "com.tencent.ig" 
-			pcall(function()
-				if UE4 and UE4.UKismetSystemLibrary then
-					packageName = UE4.UKismetSystemLibrary.GetGameName()
-				end
-			end)
-
-			local dumpPath = "/data/share1/SRCHUB_Dump.txt"
-			local file, err = io.open(dumpPath, "w")
-			if not file then
-				dumpPath = "/data/share1/SkinDump.txt"
-				file, err = io.open(dumpPath, "w")
-				if not file then return end
-			end
-
-			local count = 0
-			local itemsProcessed = 0
-			local batchLimit = 0x999999999
-
-			local backpack = nil
-			pcall(function() backpack = UE4.UBackpackUtils.StaticClass() end)
-
-			if backpack then
-				local items = backpack:GetItemIDs()
-				if items then
-					local num = items:Num()
-					for i = 0, num - 1 do
-						local itemID = items:Get(i)
-						local data = backpack:GetItemRecord(itemID)
-						if data and data.BPID ~= 0 then
-							local name = data.ItemName
-							if type(name) == "userdata" and name.ToWString then
-								name = name:ToWString()
-							end
-							file:write(tostring(itemID) .. " | " .. tostring(name) .. "\n")
-							count = count + 1
-						end
-
-						itemsProcessed = itemsProcessed + 1
-						if itemsProcessed >= batchLimit then
-							itemsProcessed = 0
-							async.Yield(co) 
-						end
-					end
-				end
-			else
-				local CDataTable = _G.CDataTable or require("common.CDataTable")
-				local ItemTable = CDataTable.GetTable("Item")
-				if ItemTable then
-					for id, v in pairs(ItemTable) do
-						if v.BPID and v.BPID ~= 0 then
-							local name = v.ItemName or "Unknown"
-							if type(name) == "userdata" and name.ToWString then
-								name = name:ToWString()
-							end
-							file:write(tostring(v.ID or id) .. " | " .. tostring(name) .. "\n")
-							count = count + 1
-							
-							itemsProcessed = itemsProcessed + 1
-							if itemsProcessed >= batchLimit then
-								itemsProcessed = 0
-								async.Yield(co)
-							end
-						end
-					end
-				end
-			end
-			file:close()
-		end)
-	end)
-end
-
-function Yargi.GetDumpedItems()
-	if Yargi.DumpedItems then return Yargi.DumpedItems end
+function Yargi.GetFallbackPacket()
 	local packet = {}
 	local instId = Yargi.FakeInstBase
-	local hasItems = false
 	
-	pcall(function()
-		local dumpPath = "/data/share1/SRCHUB_Dump.txt"
-		local file = io.open(dumpPath, "r")
-		if not file then
-			dumpPath = "/data/share1/SkinDump.txt"
-			file = io.open(dumpPath, "r")
-		end
-		
-		if file then
-			for line in file:lines() do
-				local idStr = line:match("^(%d+)%s*|") or line:match("^(%d+)")
-				if idStr then
-					local resId = tonumber(idStr)
-					if resId and resId > 0 then
-						instId = instId + 1
-						packet[instId] = {
-							res_id = resId,
-							count = 1,
-							lock_cnt = 0,
-							isnew = 0,
-							valid_hours = 0,
-							expire_ts = 1999999999,
-							color = 0,
-							pattern = 0,
-							notified_3day = 0,
-							notified_1week = 0
-						}
-						hasItems = true
-					end
-				end
-			end
-			file:close()
-		end
-	end)
-
-	if not hasItems then
-		local manual = {
-			101001, 101002, 101003, 101004, 101005, 101006, 101007, 101008, 101009, 101010, 101011, 101012, 101100, 
-			102001, 102002, 102003, 102004, 102005, 103001, 103002, 103003, 104001, 104002, 104003, 104004, 105001, 
-			105002, 105010, 106001, 106002, 106003, 106004, 106005, 106006, 106008, 106010,
-			1010041, 1010042, 1010043, 1010044, 1010045, 1010046, 1010047, 1010048, 1010049, 10100410, 10100411, 10100412,
-			1010011, 1010012, 1010013, 1010014, 1010015, 1010016, 1010017,
-			1030031, 1030032, 1030033, 1030034, 1030035, 1030036, 1030037, 1030039,
-			1406469, 1406470, 1406471, 1406472, 1406473, 1406474, 1406475,
-			1406638, 1406639, 1406640, 1406641, 1406642, 1406643, 1406711, 1406712, 1406713, 1406714, 1406715, 1406716, 
-			1406810, 1406811, 1406812, 1406813, 1406814, 1406815, 1406872, 
-			1406965, 1406966, 1406967, 1406968, 1406969, 1406970, 1406971, 
-			1407097, 1407098, 1407099, 1407100, 1407101, 1407102, 1407103, 
-			1407140, 1407141, 1407142, 1407213, 1407214, 1407215, 1407216, 1407217, 1407218, 1407219, 
-			1407253, 1407254, 1407255, 1407256, 1407257, 1407258, 1407259,
-			1406561, 1406568, 1406569, 1406570, 1406571, 1406578, 1406579, 1406580, 1406626, 1406627, 1406628, 1406629, 
-			1406630, 1406631, 1406632, 1406633, 1406634, 1406635, 1406636, 1406644, 1406645, 1406646, 1406647, 1406648, 
-			1406649, 1406650, 1406651, 1406652, 1406653, 1406654, 1406655, 1406656, 1406657, 1406658, 1406659, 1406660, 
-			1406661, 1406662, 1406663, 1406664, 1406665, 1406666, 1406667, 1406668, 1406669, 1406670, 1406671, 1406672, 
-			1406673, 1406674, 1406675, 1406676, 1406677, 1406678, 1406679, 1406680, 1406681, 1406682, 1406683, 1406684, 
-			1406685, 1406686, 1406687, 1406688, 1406689, 1406690, 1406691, 1406692, 1406693, 1406694, 1406695, 1406696, 
-			1406697, 1406698, 1406699, 1406700, 1407264, 1407265, 1407266, 1400321, 1400322, 1400323,
-			502101, 502102, 502103, 502104, 502105, 502106, 502107, 502108, 502109, 502110, 502111, 502112, 502113, 502114, 
-			502115, 502116, 502117, 502118, 502001, 502002, 502003, 502004, 502005,
-			501001, 501002, 501003, 501004, 501005, 501006, 501007, 501008, 501009, 501010, 501011, 501012, 501015, 501017, 
-			501101, 501102, 501103, 501104, 501105, 501106,
-			403000, 403001, 403002, 403003, 403004, 403005, 403006, 403007, 403008, 403009, 403010, 403011, 403012, 403013, 
-			403014, 403015, 403016, 403017, 403018, 403019, 403020, 403021, 403023, 403026, 403027, 403028, 403029, 403030,
-			404001, 404002, 404003, 404004, 404005, 404006, 404008, 404009, 404010, 404011, 404012, 404013, 404014, 404015, 
-			404023, 404024,
-			405000, 405001, 405002, 405004, 405005, 405006, 405007, 405008, 405009, 405010, 405011, 405012, 405013, 405014,
-			452001, 452002, 452003,
-			50001, 50002, 50003, 50004, 50005, 50006, 50007, 50008, 50009, 50010, 50011, 50012, 50013, 50014, 50015, 50016, 
-			50017, 50018, 50019, 50020, 50021, 50022, 50023, 50024, 50025, 50026, 50027, 50028, 50029, 50030, 50031, 50032, 
-			50033, 50034, 50035, 50036, 50037, 50038, 50039, 50040, 50041, 50042, 50043, 50044, 50045, 50046,
-			31401, 31403, 31404, 31405, 31406, 31407, 31408, 31409, 31410, 31411, 31412, 31413, 32001, 32002, 32003, 32004, 
-			32005, 40001, 40002, 40003, 40004, 40005, 40006, 60001, 60002, 60003, 60004, 60005, 60006, 211001, 211002, 
-			211003, 211004, 211005, 212001, 212002, 212003, 212004
+	-- Acil durum listesi: Sadece en onemli esyalar. Internet indirmesi bitene kadar lobide bos kalmamasi icin.
+	local manual = {
+		1010041, 1010042, 1010043, 1010044, 1010045, 1010046, 1010047, 1010048, 1010049, 10100410, 10100411, 10100412,
+		1406469, 1406470, 1406471, 1406472, 1406473, 1406474, 1406475,
+		1406638, 1406639, 1406640, 1406641, 1406642, 1406643, 1406711, 1406712, 1406713, 1406714, 1406715, 1406716, 
+		1406810, 1406811, 1406812, 1406813, 1406814, 1406815, 1406872, 
+		1406965, 1406966, 1406967, 1406968, 1406969, 1406970, 1406971, 
+		1407097, 1407098, 1407099, 1407100, 1407101, 1407102, 1407103, 
+		1407140, 1407141, 1407142, 1407213, 1407214, 1407215, 1407216, 1407217, 1407218, 1407219, 
+		1407253, 1407254, 1407255, 1407256, 1407257, 1407258, 1407259
+	}
+	
+	for i = 1, #manual do
+		instId = instId + 1
+		packet[instId] = {
+			res_id = manual[i],
+			count = 1, lock_cnt = 0, isnew = 0, valid_hours = 0, expire_ts = 0,
+			color = 0, pattern = 0, notified_3day = 0, notified_1week = 0
 		}
-		for i = 1, #manual do
-			instId = instId + 1
-			packet[instId] = {
-				res_id = manual[i],
-				count = 1, lock_cnt = 0, isnew = 0, valid_hours = 0, expire_ts = 1999999999,
-				color = 0, pattern = 0, notified_3day = 0, notified_1week = 0
-			}
-		end
 	end
 	
-	Yargi.DumpedItems = packet
+	Yargi.StartInstId = instId
 	return packet
 end
 
-function Yargi.ShowMsg()
+function Yargi.DownloadFromGithubAndInject()
 	pcall(function()
-		local GlobalUIFunctionLibrary = _G.GlobalUIFunctionLibrary or require("client.slua.umg.common.GlobalUIFunctionLibrary")
-		if GlobalUIFunctionLibrary and GlobalUIFunctionLibrary.ShowSystemTips then
-			GlobalUIFunctionLibrary.ShowSystemTips("YARGI: SKINLER AKTIF!")
-		else
-			local mgr = package.loaded["client.slua.logic.common.logic_common_msg_box"]
-			if not mgr then
-				local ok, r = pcall(require, "client.slua.logic.common.logic_common_msg_box")
-				if ok then mgr = r end
+		local ModuleManager = _G.ModuleManager or require("client.slua.logic.common.ModuleManager")
+		local http_manager = ModuleManager.GetModule(ModuleManager.CommonModuleConfig.http_manager)
+		if http_manager then
+			local url = "https://raw.githubusercontent.com/SanalOwnerTR/Onlinemod/main/DumpSkin.h"
+			http_manager:Get(url, {}, "", nil, function(success, data, content)
+				if success and content then
+					local packet = {}
+					local instId = Yargi.StartInstId
+					
+					for line in string.gmatch(content, "[^\r\n]+") do
+						local idStr = line:match("^(%d+)")
+						if idStr then
+							local resId = tonumber(idStr)
+							if resId and resId > 10000 then
+								instId = instId + 1
+								packet[instId] = {
+									res_id = resId,
+									count = 1, lock_cnt = 0, isnew = 0, valid_hours = 0, expire_ts = 0,
+									color = 0, pattern = 0, notified_3day = 0, notified_1week = 0
+								}
+							end
+						end
+					end
+					
+					pcall(function()
+						local wardrobe = package.loaded["client.slua.logic.wardrobe.wardrobe_data"] or _G.wardrobe_data
+						if wardrobe and wardrobe.GetHallDepotItemData then
+							local depot = wardrobe:GetHallDepotItemData()
+							if depot and depot.AddData then
+								for _, v in pairs(packet) do
+									pcall(depot.AddData, depot, v)
+								end
+							end
+						end
+					end)
+					
+					pcall(function()
+						local GlobalUIFunctionLibrary = _G.GlobalUIFunctionLibrary or require("client.slua.umg.common.GlobalUIFunctionLibrary")
+						if GlobalUIFunctionLibrary and GlobalUIFunctionLibrary.ShowSystemTips then
+							GlobalUIFunctionLibrary.ShowSystemTips("YARGI: Internet'ten " .. tostring(instId - Yargi.StartInstId) .. " Skin Indirildi ve Envantere Eklendi!")
+						end
+					end)
+				end
+			end)
+		end
+	end)
+end
+
+function Yargi.MakePermanent()
+	pcall(function()
+		local lgd_wpn = package.loaded["client.slua.logic.wardrobe.logic_legend_weapon"] or _G.logic_legend_weapon
+		if not lgd_wpn then
+			local ok, res = pcall(require, "client.slua.logic.wardrobe.logic_legend_weapon")
+			if ok then lgd_wpn = res end
+		end
+		if lgd_wpn then
+			if lgd_wpn.GetPermissionType then
+				lgd_wpn.GetPermissionType = function() return 4 end
 			end
-			if mgr and mgr.Show then
-				mgr.Show(1, "YARGI", "Skinler Envantere Eklendi!", nil, nil, "OK")
+			if lgd_wpn.GetActivateStatus then
+				lgd_wpn.GetActivateStatus = function() return 4 end
 			end
+			if lgd_wpn.IsLgdWpnValid then
+				lgd_wpn.IsLgdWpnValid = function() return true end
+			end
+			if lgd_wpn.CheckValidity then
+				lgd_wpn.CheckValidity = function() return true end
+			end
+			if lgd_wpn._HasPermanentCard then
+				lgd_wpn._HasPermanentCard = function() return true end
+			end
+		end
+	end)
+	
+	pcall(function()
+		local lgd_suit = package.loaded["client.slua.logic.wardrobe.logic_legend_suit"] or _G.logic_legend_suit
+		if not lgd_suit then
+			local ok, res = pcall(require, "client.slua.logic.wardrobe.logic_legend_suit")
+			if ok then lgd_suit = res end
+		end
+		if lgd_suit then
+			if lgd_suit.GetPermissionType then
+				lgd_suit.GetPermissionType = function() return 4 end
+			end
+			if lgd_suit.GetActivateStatus then
+				lgd_suit.GetActivateStatus = function() return 4 end
+			end
+			if lgd_suit.IsLgdSuitValid then
+				lgd_suit.IsLgdSuitValid = function() return true end
+			end
+			if lgd_suit.CheckValidity then
+				lgd_suit.CheckValidity = function() return true end
+			end
+			if lgd_suit._HasPermanentCard then
+				lgd_suit._HasPermanentCard = function() return true end
+			end
+		end
+	end)
+	
+	pcall(function()
+		local xsuit = package.loaded["client.slua.logic.xsuit.logic_xsuit"] or _G.logic_xsuit
+		if not xsuit then
+			local ok, res = pcall(require, "client.slua.logic.xsuit.logic_xsuit")
+			if ok then xsuit = res end
+		end
+		if xsuit then
+			if xsuit.IsLgdSuitValid then xsuit.IsLgdSuitValid = function() return true end end
+			if xsuit.CheckValidity then xsuit.CheckValidity = function() return true end end
 		end
 	end)
 end
@@ -200,15 +155,15 @@ function Yargi.HookWardrobeData(module)
 	local old_InitHallDepotData = module.InitHallDepotData
 	if old_InitHallDepotData then
 		module.InitHallDepotData = function(self, arrayItemDataPackage)
-			local fakePacket = Yargi.GetDumpedItems()
+			local fakePacket = Yargi.GetFallbackPacket()
 			table.insert(arrayItemDataPackage, fakePacket)
 			
-			local ok, ticker = pcall(require, "common.time_ticker")
-			if ok and ticker and ticker.AddTimerOnce then
-				ticker.AddTimerOnce(1.0, Yargi.ShowMsg)
-			else
-				Yargi.ShowMsg()
-			end
+			pcall(function()
+				local GlobalUIFunctionLibrary = _G.GlobalUIFunctionLibrary or require("client.slua.umg.common.GlobalUIFunctionLibrary")
+				if GlobalUIFunctionLibrary and GlobalUIFunctionLibrary.ShowSystemTips then
+					GlobalUIFunctionLibrary.ShowSystemTips("YARGI: Altyapi Hazir, Internet'ten Skinler Bekleniyor...")
+				end
+			end)
 			
 			return old_InitHallDepotData(self, arrayItemDataPackage)
 		end
@@ -232,7 +187,8 @@ function Yargi.Init()
 		Yargi.HookWardrobeData(existing)
 	end
 	
-	SkinDumpkod()
+	Yargi.MakePermanent()
+	Yargi.DownloadFromGithubAndInject()
 end
 
 Yargi.Init()
