@@ -1643,7 +1643,7 @@ function Yargi.MakePermanent()
 						local fakeItems = Yargi.GetFallbackPacket()
 						local itemData = fakeItems[tonumber(instid)]
 						if WardRobeHandler.on_equip_motion_rsp then
-							WardRobeHandler.on_equip_motion_rsp(0, dst_slot, itemData, nil)
+							WardRobeHandler.on_equip_motion_rsp("ok", dst_slot, itemData, nil)
 						end
 						return
 					end
@@ -1658,7 +1658,7 @@ function Yargi.MakePermanent()
 					Yargi.SaveToFile()
 					if tonumber(instid) >= Yargi.FakeInstBase then
 						if WardRobeHandler.on_unequip_motion_rsp then
-							WardRobeHandler.on_unequip_motion_rsp(0, slot, nil)
+							WardRobeHandler.on_unequip_motion_rsp("ok", slot, nil)
 						end
 						return
 					end
@@ -1680,105 +1680,11 @@ function Yargi.MakePermanent()
 						local srcItem = fakeItems[Yargi.SavedData.Emotes[tonumber(src_slot)]]
 						local dstItem = fakeItems[Yargi.SavedData.Emotes[tonumber(dst_slot)]]
 						if WardRobeHandler.on_exchange_motion_rsp then
-							WardRobeHandler.on_exchange_motion_rsp(0, srcItem, dstItem)
+							WardRobeHandler.on_exchange_motion_rsp("ok", srcItem, dstItem)
 						end
 						return
 					end
 					return old_exchange_motion(src_slot, dst_slot)
-				end
-			end
-			
-			Yargi.HookInMatchAvatar()
-		end
-	end)
-end
-
-function Yargi.HookInMatchAvatar()
-	pcall(function()
-		local CharacterAvatarComponent = require("GameLua.Mod.Library.GamePlay.Avatar.Component.CharacterAvatarComponent")
-		if CharacterAvatarComponent and not CharacterAvatarComponent._yargiInMatchHooked then
-			CharacterAvatarComponent._yargiInMatchHooked = true
-			
-			local old_mesh_loaded = CharacterAvatarComponent.OnAvatarAllMeshLoadedLua
-			CharacterAvatarComponent.OnAvatarAllMeshLoadedLua = function(self)
-				if old_mesh_loaded then old_mesh_loaded(self) end
-				
-				local uPawn = self:GetOwner()
-				if uPawn and uPawn.IsSelf and uPawn:IsSelf() then
-					local fakeItems = Yargi.GetFallbackPacket()
-					if fakeItems and self.PutOnCustomEquipmentByID then
-						for _, insID in pairs(Yargi.SavedData.Clothes) do
-							local item = fakeItems[tonumber(insID)]
-							if item and item.res_id then
-								pcall(function() self:PutOnCustomEquipmentByID(item.res_id) end)
-							end
-						end
-					end
-				end
-			end
-			
-			local old_get_equipment_skin = CharacterAvatarComponent.GetEquipmentSkinItemID
-			CharacterAvatarComponent.GetEquipmentSkinItemID = function(self, InItemID)
-				local originalSkin = nil
-				if old_get_equipment_skin then 
-					originalSkin = old_get_equipment_skin(self, InItemID)
-				end
-				
-				local uPawn = self:GetOwner()
-				if uPawn and uPawn.IsSelf and uPawn:IsSelf() then
-					-- Silah veya çanta skin ID'si maç içi
-					local wpSkin = Yargi.SavedData.Weapons[tonumber(InItemID)]
-					if wpSkin and tonumber(wpSkin) > 0 then
-						return tonumber(wpSkin)
-					end
-				end
-				return originalSkin
-			end
-			
-			local old_get_slot = CharacterAvatarComponent.GetSlotSyncData
-			if old_get_slot then
-				CharacterAvatarComponent.GetSlotSyncData = function(self, InSlotType)
-					local originalData = old_get_slot(self, InSlotType)
-					local uPawn = self:GetOwner()
-					if uPawn and uPawn.IsSelf and uPawn:IsSelf() then
-						if InSlotType == 5 then -- Clothes
-							local fakeItems = Yargi.GetFallbackPacket()
-							for _, insID in pairs(Yargi.SavedData.Clothes) do
-								local item = fakeItems[tonumber(insID)]
-								if item and item.res_id then
-									if originalData and type(originalData) == "table" then
-										originalData.ItemID = item.res_id
-									end
-								end
-							end
-						end
-					end
-					return originalData
-				end
-			end
-		end
-		
-		local WeaponAvatarComponent = require("GameLua.Mod.Library.GamePlay.Avatar.Component.WeaponAvatarComponent")
-		if WeaponAvatarComponent and not WeaponAvatarComponent._yargiInMatchHooked then
-			WeaponAvatarComponent._yargiInMatchHooked = true
-			local old_weapon_loaded = WeaponAvatarComponent.OnWeaponAvatarLoadedLua
-			WeaponAvatarComponent.OnWeaponAvatarLoadedLua = function(self, SlotID, DefinedID)
-				if old_weapon_loaded then old_weapon_loaded(self, SlotID, DefinedID) end
-				
-				local uPawn = self:GetOwner()
-				if uPawn and uPawn.IsSelf and uPawn:IsSelf() then
-					-- Maç içi silah skin zorlama
-					local baseWeaponID = 0
-					if DefinedID and type(DefinedID) == "table" and DefinedID.TypeSpecificID then
-						baseWeaponID = DefinedID.TypeSpecificID
-					elseif type(DefinedID) == "number" then
-						baseWeaponID = DefinedID
-					end
-					
-					local wpSkin = Yargi.SavedData.Weapons[tonumber(baseWeaponID)]
-					if wpSkin and tonumber(wpSkin) > 0 and self.ChangeAllMeshToFeatureMaterial then
-						-- Ufak bir hileyle modeli zorla değiştirme (eğer motor destekliyorsa)
-					end
 				end
 			end
 		end
@@ -1798,6 +1704,23 @@ function Yargi.HookWardrobeData(module)
 				for k, v in pairs(fakeItems) do
 					v.instid = k
 					entity:AddData(v)
+				end
+				
+				if not entity._yargiHookedGetData then
+					entity._yargiHookedGetData = true
+					local old_get_data = entity.GetDataByInsID
+					if old_get_data then
+						entity.GetDataByInsID = function(self, InsID)
+							local original = old_get_data(self, InsID)
+							if not original and InsID and tonumber(InsID) >= Yargi.FakeInstBase then
+								local Index = self.InsIDToIndexMap[tonumber(InsID)]
+								if Index and self._data[Index] then
+									return self._data[Index]
+								end
+							end
+							return original
+						end
+					end
 				end
 			end
 		end
@@ -1926,7 +1849,7 @@ function Yargi.ApplySavedLoadout()
 		end
 		if WardRobeHandler and WardRobeHandler.on_equip_motion_rsp then
 			local itemData = fakeItems[tonumber(inst_id)]
-			WardRobeHandler.on_equip_motion_rsp(0, pos, itemData, nil)
+			WardRobeHandler.on_equip_motion_rsp("ok", pos, itemData, nil)
 		end
 	end
 end
