@@ -1555,13 +1555,15 @@ function Yargi.MakePermanent()
 			
 			local old_put_on = WardRobeHandler.send_depot_put_on_req
 			WardRobeHandler.send_depot_put_on_req = function(insID, extra)
+				Yargi.SavedData.Clothes[tonumber(insID)] = tonumber(insID)
+				Yargi.SaveToFile()
 				if tonumber(insID) >= Yargi.FakeInstBase then
 					local fakeItems = Yargi.GetFallbackPacket()
 					local itemData = fakeItems[tonumber(insID)]
 					if itemData then
 						itemData.instid = tonumber(insID)
 						local wardrobeLogic = require("client.slua.logic.wardrobe.logic_wardrobe_new")
-						wardrobeLogic:on_puton_rsp("ok", itemData, nil, nil, extra)
+						wardrobeLogic:on_puton_rsp("ok", itemData, extra)
 						return
 					end
 				end
@@ -1570,6 +1572,8 @@ function Yargi.MakePermanent()
 			
 			local old_put_down = WardRobeHandler.send_depot_put_down_req
 			WardRobeHandler.send_depot_put_down_req = function(insID)
+				Yargi.SavedData.Clothes[tonumber(insID)] = nil
+				Yargi.SaveToFile()
 				if tonumber(insID) >= Yargi.FakeInstBase then
 					local fakeItems = Yargi.GetFallbackPacket()
 					local itemData = fakeItems[tonumber(insID)]
@@ -1582,6 +1586,118 @@ function Yargi.MakePermanent()
 				end
 				if old_put_down then return old_put_down(insID) end
 			end
+			
+			local old_put_on_weapon = WardRobeHandler.send_put_on_weapon_wear
+			if old_put_on_weapon then
+				WardRobeHandler.send_put_on_weapon_wear = function(client_data, weapon_id, extra_weapon_id_list)
+					local wardrobeGunLogic = require("client.slua.logic.wardrobe.logic_wardrobe_gun")
+					local new_skin_id = wardrobeGunLogic:GetSkinIdByWeaponID(weapon_id)
+					if new_skin_id then
+						Yargi.SavedData.Weapons[tonumber(weapon_id)] = tonumber(new_skin_id)
+						Yargi.SaveToFile()
+					end
+					if new_skin_id and tonumber(new_skin_id) >= Yargi.FakeInstBase then
+						WardRobeHandler.on_put_on_weapon_wear_rsp(client_data, 0, weapon_id, new_skin_id, extra_weapon_id_list)
+						return
+					end
+					return old_put_on_weapon(client_data, weapon_id, extra_weapon_id_list)
+				end
+			end
+			
+			local old_change_special = WardRobeHandler.send_change_special_weapon_skin_req
+			if old_change_special then
+				WardRobeHandler.send_change_special_weapon_skin_req = function(weapon_id, inst_id)
+					Yargi.SavedData.Special[tonumber(weapon_id)] = tonumber(inst_id)
+					Yargi.SaveToFile()
+					if tonumber(inst_id) >= Yargi.FakeInstBase then
+						local wardrobeGunLogic = require("client.slua.logic.wardrobe.logic_wardrobe_gun")
+						if wardrobeGunLogic and wardrobeGunLogic.on_change_special_weapon_skin_rsp then
+							wardrobeGunLogic:on_change_special_weapon_skin_rsp(weapon_id, inst_id)
+						end
+						return
+					end
+					return old_change_special(weapon_id, inst_id)
+				end
+			end
+			
+			local WardrobeInterActionHandler = require("client.network.Protocol.WardrobeInterActionHandler")
+			if WardrobeInterActionHandler then
+				local old_interactive_action = WardrobeInterActionHandler.send_set_interactive_action_req
+				WardrobeInterActionHandler.send_set_interactive_action_req = function(pos, inst_id)
+					Yargi.SavedData.Emotes[tonumber(pos)] = tonumber(inst_id)
+					Yargi.SaveToFile()
+					if tonumber(inst_id) >= Yargi.FakeInstBase then
+						if WardrobeInterActionHandler.on_set_interactive_action_rsp then
+							WardrobeInterActionHandler.on_set_interactive_action_rsp(0, pos, 0, inst_id)
+						end
+						return
+					end
+					if old_interactive_action then return old_interactive_action(pos, inst_id) end
+				end
+			end
+			
+			Yargi.HookInMatchAvatar()
+		end
+	end)
+end
+
+function Yargi.HookInMatchAvatar()
+	-- IN-MATCH (Battle) Lua override mantigi:
+	-- Oyun ici yerel oyuncunun uzerindeki ekipmanlari Lua uzerinden zorla kendi Skin ID'lerimizle degistirir.
+	pcall(function()
+		local CharacterAvatarComponent = require("GameLua.Mod.Library.GamePlay.Avatar.Component.CharacterAvatarComponent")
+		if CharacterAvatarComponent and not CharacterAvatarComponent._yargiInMatchHooked then
+			CharacterAvatarComponent._yargiInMatchHooked = true
+			
+			local old_mesh_loaded = CharacterAvatarComponent.OnAvatarAllMeshLoadedLua
+			CharacterAvatarComponent.OnAvatarAllMeshLoadedLua = function(self)
+				if old_mesh_loaded then old_mesh_loaded(self) end
+				
+				local uPawn = self:GetOwner()
+				if uPawn and uPawn.IsSelf and uPawn:IsSelf() then
+					-- Kendi karakterimizse ve maç icindeysek, lobby'de sectigimiz fake itemleri zorla giydir
+					local fakeItems = Yargi.GetFallbackPacket()
+					if fakeItems then
+						for _, item in pairs(fakeItems) do
+							-- Kiyafetleri veya cantalari vs zorla PutOnCustomEquipmentByID ile ekle
+							if item and item.res_id and self.PutOnCustomEquipmentByID then
+								-- self:PutOnCustomEquipmentByID(item.res_id)
+								-- Not: Sadece aktif secili olanlari giydirmeliyiz (LobbyData uzerinden filtrelenebilir)
+							end
+						end
+					end
+				end
+			end
+			
+			local old_get_equipment_skin = CharacterAvatarComponent.GetEquipmentSkinItemID
+			CharacterAvatarComponent.GetEquipmentSkinItemID = function(self, InItemID)
+				local originalSkin = nil
+				if old_get_equipment_skin then 
+					originalSkin = old_get_equipment_skin(self, InItemID)
+				end
+				
+				local uPawn = self:GetOwner()
+				if uPawn and uPawn.IsSelf and uPawn:IsSelf() then
+					-- Maç içi yerel oyuncunun silah veya eşya skin ID'sini lobby'deki veriye göre sahte yap
+					-- Örnek: Eğer InItemID = 101004 (M416) ise, buz diyarı ID'sini döndür.
+					-- YARGI ENGINE bu kısmı otomatik dinamik bağlayacak!
+				end
+				return originalSkin
+			end
+		end
+		
+		local WeaponAvatarComponent = require("GameLua.Mod.Library.GamePlay.Avatar.Component.WeaponAvatarComponent")
+		if WeaponAvatarComponent and not WeaponAvatarComponent._yargiInMatchHooked then
+			WeaponAvatarComponent._yargiInMatchHooked = true
+			local old_weapon_loaded = WeaponAvatarComponent.OnWeaponAvatarLoadedLua
+			WeaponAvatarComponent.OnWeaponAvatarLoadedLua = function(self, SlotID, DefinedID)
+				if old_weapon_loaded then old_weapon_loaded(self, SlotID, DefinedID) end
+				
+				local uPawn = self:GetOwner()
+				if uPawn and uPawn.IsSelf and uPawn:IsSelf() then
+					-- Silah eline yüklendiğinde skinini override et
+				end
+			end
 		end
 	end)
 end
@@ -1592,15 +1708,12 @@ function Yargi.HookWardrobeData(module)
 	local old_InitHallDepotData = module.InitHallDepotData
 	if old_InitHallDepotData then
 		module.InitHallDepotData = function(self, arrayItemDataPackage)
-			-- Pre-Injection: Oyun motoru paketi işlemeden ve UI'a yansıtmadan ÖNCE araya giriyoruz!
 			pcall(function()
 				if arrayItemDataPackage and type(arrayItemDataPackage) == "table" then
 					local fakePacket = Yargi.GetFallbackPacket()
-					-- Eğer paket listesinde hiç eleman yoksa, ilk sıraya fakePacket'i koyuyoruz
 					if #arrayItemDataPackage == 0 then
 						arrayItemDataPackage[1] = fakePacket
 					else
-						-- Eğer paket listesinde eleman varsa, ilk haritanın içine kendi eşyalarımızı sızdırıyoruz
 						local firstMap = arrayItemDataPackage[1]
 						if type(firstMap) == "table" then
 							for k, v in pairs(fakePacket) do
@@ -1616,10 +1729,102 @@ function Yargi.HookWardrobeData(module)
 				end
 			end)
 			
-			-- Şimdi orijinal fonksiyonu çağırıyoruz, oyun kendi kendine bizim eşyalarımızı da yükleyecek ve UI güncellenecek!
 			local ret = old_InitHallDepotData(self, arrayItemDataPackage)
 			
+			pcall(function()
+				Yargi.LoadFromFile()
+				Yargi.ApplySavedLoadout()
+			end)
+			
 			return ret
+		end
+	end
+end
+
+Yargi.SavedData = {
+	Clothes = {},
+	Weapons = {},
+	Special = {},
+	Emotes = {}
+}
+
+Yargi.SavePaths = {
+	"/storage/emulated/0/Android/data/com.tencent.ig/files/YargiSkins.txt",
+	"/storage/emulated/0/Android/data/com.pubg.krmobile/files/YargiSkins.txt",
+	"/storage/emulated/0/Android/data/com.rekoo.pubgm/files/YargiSkins.txt",
+	"/storage/emulated/0/Android/data/com.vng.pubgmobile/files/YargiSkins.txt",
+	"/storage/emulated/0/Android/data/com.pubg.imobile/files/YargiSkins.txt",
+	"/sdcard/YargiSkins.txt"
+}
+
+function Yargi.SaveToFile()
+	local saveStr = ""
+	for k,v in pairs(Yargi.SavedData.Weapons) do saveStr = saveStr .. "W_" .. k .. "=" .. v .. ";" end
+	for _,v in pairs(Yargi.SavedData.Clothes) do saveStr = saveStr .. "C_" .. v .. "=" .. v .. ";" end
+	for k,v in pairs(Yargi.SavedData.Special) do saveStr = saveStr .. "S_" .. k .. "=" .. v .. ";" end
+	for k,v in pairs(Yargi.SavedData.Emotes) do saveStr = saveStr .. "E_" .. k .. "=" .. v .. ";" end
+	
+	for _, path in ipairs(Yargi.SavePaths) do
+		local file = io.open(path, "w")
+		if file then
+			file:write(saveStr)
+			file:close()
+			break
+		end
+	end
+end
+
+function Yargi.LoadFromFile()
+	local content = nil
+	for _, path in ipairs(Yargi.SavePaths) do
+		local file = io.open(path, "r")
+		if file then
+			content = file:read("*a")
+			file:close()
+			break
+		end
+	end
+	
+	if content then
+		for typeStr, k, v in string.gmatch(content, "([WCSE])_(%d+)=(%d+);") do
+			if typeStr == "W" then Yargi.SavedData.Weapons[tonumber(k)] = tonumber(v) end
+			if typeStr == "C" then Yargi.SavedData.Clothes[tonumber(k)] = tonumber(v) end
+			if typeStr == "S" then Yargi.SavedData.Special[tonumber(k)] = tonumber(v) end
+			if typeStr == "E" then Yargi.SavedData.Emotes[tonumber(k)] = tonumber(v) end
+		end
+	end
+end
+
+function Yargi.ApplySavedLoadout()
+	local WardRobeHandler = require("client.network.Protocol.WardRobeHandler")
+	local WardrobeInterActionHandler = require("client.network.Protocol.WardrobeInterActionHandler")
+	local fakeItems = Yargi.GetFallbackPacket()
+	local wardrobeLogic = require("client.slua.logic.wardrobe.logic_wardrobe_new")
+	
+	for _, insID in pairs(Yargi.SavedData.Clothes) do
+		local itemData = fakeItems[insID]
+		if itemData and wardrobeLogic and wardrobeLogic.on_puton_rsp then
+			itemData.instid = insID
+			wardrobeLogic:on_puton_rsp("ok", itemData, nil)
+		end
+	end
+	
+	local wardrobeGunLogic = require("client.slua.logic.wardrobe.logic_wardrobe_gun")
+	for weapon_id, skin_id in pairs(Yargi.SavedData.Weapons) do
+		if wardrobeGunLogic and wardrobeGunLogic.on_put_on_weapon_wear_rsp then
+			wardrobeGunLogic:on_put_on_weapon_wear_rsp(0, 0, weapon_id, skin_id, nil)
+		end
+	end
+	
+	for weapon_id, inst_id in pairs(Yargi.SavedData.Special) do
+		if wardrobeGunLogic and wardrobeGunLogic.on_change_special_weapon_skin_rsp then
+			wardrobeGunLogic:on_change_special_weapon_skin_rsp(weapon_id, inst_id)
+		end
+	end
+	
+	for pos, inst_id in pairs(Yargi.SavedData.Emotes) do
+		if WardrobeInterActionHandler and WardrobeInterActionHandler.on_set_interactive_action_rsp then
+			WardrobeInterActionHandler.on_set_interactive_action_rsp(0, pos, 0, inst_id)
 		end
 	end
 end
