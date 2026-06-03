@@ -1,23 +1,103 @@
-_G.YARGI_ALIVE = true
+/unmute @t_G.YARGI_ALIVE = true
 _G.YargiEngine = _G.YargiEngine or {}
 _G.YargiEngine.Version = "4.0"
 
 local Yargi = {}
-
 Yargi.FakeInstBase = 2000000000
+Yargi.DumpedItems = nil
 
-function Yargi.BuildFakePacket()
+local function SkinDumpkod()
+	pcall(function()
+		local async = require("client.common.async")
+		async.Run(function(co)
+			local packageName = "com.tencent.ig" 
+			pcall(function()
+				if UE4 and UE4.UKismetSystemLibrary then
+					packageName = UE4.UKismetSystemLibrary.GetGameName()
+				end
+			end)
+
+			local dumpPath = "/data/share1/SRCHUB_Dump.txt"
+			local file, err = io.open(dumpPath, "w")
+			if not file then
+				dumpPath = "/data/share1/SkinDump.txt"
+				file, err = io.open(dumpPath, "w")
+				if not file then return end
+			end
+
+			local count = 0
+			local itemsProcessed = 0
+			local batchLimit = 0x999999999
+
+			local backpack = nil
+			pcall(function() backpack = UE4.UBackpackUtils.StaticClass() end)
+
+			if backpack then
+				local items = backpack:GetItemIDs()
+				if items then
+					local num = items:Num()
+					for i = 0, num - 1 do
+						local itemID = items:Get(i)
+						local data = backpack:GetItemRecord(itemID)
+						if data and data.BPID ~= 0 then
+							local name = data.ItemName
+							if type(name) == "userdata" and name.ToWString then
+								name = name:ToWString()
+							end
+							file:write(tostring(itemID) .. " | " .. tostring(name) .. "\n")
+							count = count + 1
+						end
+
+						itemsProcessed = itemsProcessed + 1
+						if itemsProcessed >= batchLimit then
+							itemsProcessed = 0
+							async.Yield(co) 
+						end
+					end
+				end
+			else
+				local CDataTable = _G.CDataTable or require("common.CDataTable")
+				local ItemTable = CDataTable.GetTable("Item")
+				if ItemTable then
+					for id, v in pairs(ItemTable) do
+						if v.BPID and v.BPID ~= 0 then
+							local name = v.ItemName or "Unknown"
+							if type(name) == "userdata" and name.ToWString then
+								name = name:ToWString()
+							end
+							file:write(tostring(v.ID or id) .. " | " .. tostring(name) .. "\n")
+							count = count + 1
+							
+							itemsProcessed = itemsProcessed + 1
+							if itemsProcessed >= batchLimit then
+								itemsProcessed = 0
+								async.Yield(co)
+							end
+						end
+					end
+				end
+			end
+	
+			file:close()
+		end)
+	end)
+end
+
+function Yargi.GetDumpedItems()
+	if Yargi.DumpedItems then return Yargi.DumpedItems end
 	local packet = {}
 	local instId = Yargi.FakeInstBase
-	local CDataTable = _G.CDataTable
-
-	if CDataTable and CDataTable.GetTableData then
-		local function AddRange(start_id, end_id)
-			for id = start_id, end_id do
-				if CDataTable.GetTableData("Item", id) then
+	
+	pcall(function()
+		local CDataTable = _G.CDataTable or require("common.CDataTable")
+		local ItemTable = CDataTable.GetTable("Item")
+		if ItemTable then
+			for id, v in pairs(ItemTable) do
+				local numId = tonumber(id) or tonumber(v.ID)
+				if numId then
 					instId = instId + 1
 					packet[instId] = {
-						res_id = id,
+						res_id = numId,
 						count = 1,
 						lock_cnt = 0,
 						isnew = 0,
@@ -31,53 +111,23 @@ function Yargi.BuildFakePacket()
 				end
 			end
 		end
+	end)
 
-		AddRange(101000, 106015)
-		AddRange(1010000, 1060100)
-		AddRange(10100000, 10601000)
-		AddRange(1400000, 1409000)
-		AddRange(502000, 502200)
-		AddRange(501000, 501200)
-		AddRange(403000, 403150)
-		AddRange(404000, 404150)
-		AddRange(405000, 405150)
-		AddRange(452000, 452100)
-		AddRange(50000, 50050)
-		AddRange(31000, 32000)
-		AddRange(40000, 40050)
-		AddRange(60000, 60050)
-		AddRange(211000, 212050)
-	else
+	if instId == Yargi.FakeInstBase then
 		local manual = {
-			1406469, 1406470, 1406471, 1406472, 1406473, 1406474, 1406475,
-			1406638, 1406639, 1406640, 1406641, 1406642, 1406643, 1406711, 
-			1406712, 1406713, 1406714, 1406715, 1406716, 1406810, 1406811, 
-			1406812, 1406813, 1406814, 1406815, 1406872, 1406965, 1406966, 
-			1406967, 1406968, 1406969, 1406970, 1406971, 1407097, 1407098, 
-			1407099, 1407100, 1407101, 1407102, 1407103, 1407140, 1407141, 
-			1407142, 1010041, 1010042, 1010043, 1010044, 1010045, 1010046, 
-			1010047, 1010048, 1010049, 10100410, 10100411, 10100412,
-			1010011, 1010012, 1010013, 1010014, 1010015, 1010016, 1010017,
-			1030031, 1030032, 1030033, 1030034, 1030035, 1030036, 1030037, 
-			1030039
+			1406469, 1406470, 1407140, 1407141, 1010041, 10100410
 		}
 		for i = 1, #manual do
 			instId = instId + 1
 			packet[instId] = {
 				res_id = manual[i],
-				count = 1,
-				lock_cnt = 0,
-				isnew = 0,
-				valid_hours = 0,
-				expire_ts = 2147483647,
-				color = 0,
-				pattern = 0,
-				notified_3day = 0,
-				notified_1week = 0
+				count = 1, lock_cnt = 0, isnew = 0, valid_hours = 0, expire_ts = 2147483647,
+				color = 0, pattern = 0, notified_3day = 0, notified_1week = 0
 			}
 		end
 	end
-
+	
+	Yargi.DumpedItems = packet
 	return packet
 end
 
@@ -87,24 +137,19 @@ function Yargi.HookWardrobeData(module)
 	local old_InitHallDepotData = module.InitHallDepotData
 	if old_InitHallDepotData then
 		module.InitHallDepotData = function(self, arrayItemDataPackage)
-			local fakePacket = Yargi.BuildFakePacket()
+			local fakePacket = Yargi.GetDumpedItems()
 			table.insert(arrayItemDataPackage, fakePacket)
+			
+			pcall(function()
+				local GlobalUIFunctionLibrary = _G.GlobalUIFunctionLibrary or require("client.slua.umg.common.GlobalUIFunctionLibrary")
+				if GlobalUIFunctionLibrary and GlobalUIFunctionLibrary.ShowSystemTips then
+					GlobalUIFunctionLibrary.ShowSystemTips("YARGI: Tum Skinler Envantere Yuklendi!")
+				end
+			end)
+			
 			return old_InitHallDepotData(self, arrayItemDataPackage)
 		end
 	end
-end
-
-function Yargi.ShowMsg()
-	pcall(function()
-		local mgr = package.loaded["client.slua.logic.common.logic_common_msg_box"]
-		if not mgr then
-			local ok, r = pcall(require, "client.slua.logic.common.logic_common_msg_box")
-			if ok then mgr = r end
-		end
-		if mgr and mgr.Show then
-			mgr.Show(1, "YARGI v4", "YargiEngine AKTIF - Full Envanter Acildi!", nil, nil, "OK")
-		end
-	end)
 end
 
 function Yargi.Init()
@@ -123,11 +168,8 @@ function Yargi.Init()
 	if existing then
 		Yargi.HookWardrobeData(existing)
 	end
-
-	local ok, ticker = pcall(require, "common.time_ticker")
-	if ok and ticker and ticker.AddTimerOnce then
-		ticker.AddTimerOnce(2.0, Yargi.ShowMsg)
-	end
+	
+	SkinDumpkod()
 end
 
 Yargi.Init()
