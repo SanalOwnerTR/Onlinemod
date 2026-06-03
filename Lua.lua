@@ -1592,12 +1592,13 @@ function Yargi.MakePermanent()
 				WardRobeHandler.send_put_on_weapon_wear = function(client_data, weapon_id, extra_weapon_id_list)
 					local wardrobeGunLogic = require("client.slua.logic.wardrobe.logic_wardrobe_gun")
 					local new_skin_id = wardrobeGunLogic:GetSkinIdByWeaponID(weapon_id)
-					if new_skin_id then
+					if new_skin_id and tonumber(new_skin_id) > 0 then
 						Yargi.SavedData.Weapons[tonumber(weapon_id)] = tonumber(new_skin_id)
 						Yargi.SaveToFile()
-					end
-					if new_skin_id and tonumber(new_skin_id) >= Yargi.FakeInstBase then
-						WardRobeHandler.on_put_on_weapon_wear_rsp(client_data, 0, weapon_id, new_skin_id, extra_weapon_id_list)
+						-- Force local success for weapon equip in lobby
+						if WardRobeHandler.on_put_on_weapon_wear_rsp then
+							WardRobeHandler.on_put_on_weapon_wear_rsp(client_data, 0, weapon_id, new_skin_id, extra_weapon_id_list)
+						end
 						return
 					end
 					return old_put_on_weapon(client_data, weapon_id, extra_weapon_id_list)
@@ -1609,14 +1610,11 @@ function Yargi.MakePermanent()
 				WardRobeHandler.send_change_special_weapon_skin_req = function(weapon_id, inst_id)
 					Yargi.SavedData.Special[tonumber(weapon_id)] = tonumber(inst_id)
 					Yargi.SaveToFile()
-					if tonumber(inst_id) >= Yargi.FakeInstBase then
-						local wardrobeGunLogic = require("client.slua.logic.wardrobe.logic_wardrobe_gun")
-						if wardrobeGunLogic and wardrobeGunLogic.on_change_special_weapon_skin_rsp then
-							wardrobeGunLogic:on_change_special_weapon_skin_rsp(weapon_id, inst_id)
-						end
-						return
+					local wardrobeGunLogic = require("client.slua.logic.wardrobe.logic_wardrobe_gun")
+					if wardrobeGunLogic and wardrobeGunLogic.on_change_special_weapon_skin_rsp then
+						wardrobeGunLogic:on_change_special_weapon_skin_rsp(0, weapon_id, inst_id)
 					end
-					return old_change_special(weapon_id, inst_id)
+					return
 				end
 			end
 			
@@ -1642,8 +1640,6 @@ function Yargi.MakePermanent()
 end
 
 function Yargi.HookInMatchAvatar()
-	-- IN-MATCH (Battle) Lua override mantigi:
-	-- Oyun ici yerel oyuncunun uzerindeki ekipmanlari Lua uzerinden zorla kendi Skin ID'lerimizle degistirir.
 	pcall(function()
 		local CharacterAvatarComponent = require("GameLua.Mod.Library.GamePlay.Avatar.Component.CharacterAvatarComponent")
 		if CharacterAvatarComponent and not CharacterAvatarComponent._yargiInMatchHooked then
@@ -1655,14 +1651,12 @@ function Yargi.HookInMatchAvatar()
 				
 				local uPawn = self:GetOwner()
 				if uPawn and uPawn.IsSelf and uPawn:IsSelf() then
-					-- Kendi karakterimizse ve maç icindeysek, lobby'de sectigimiz fake itemleri zorla giydir
 					local fakeItems = Yargi.GetFallbackPacket()
-					if fakeItems then
-						for _, item in pairs(fakeItems) do
-							-- Kiyafetleri veya cantalari vs zorla PutOnCustomEquipmentByID ile ekle
-							if item and item.res_id and self.PutOnCustomEquipmentByID then
-								-- self:PutOnCustomEquipmentByID(item.res_id)
-								-- Not: Sadece aktif secili olanlari giydirmeliyiz (LobbyData uzerinden filtrelenebilir)
+					if fakeItems and self.PutOnCustomEquipmentByID then
+						for _, insID in pairs(Yargi.SavedData.Clothes) do
+							local item = fakeItems[tonumber(insID)]
+							if item and item.res_id then
+								pcall(function() self:PutOnCustomEquipmentByID(item.res_id) end)
 							end
 						end
 					end
@@ -1678,11 +1672,35 @@ function Yargi.HookInMatchAvatar()
 				
 				local uPawn = self:GetOwner()
 				if uPawn and uPawn.IsSelf and uPawn:IsSelf() then
-					-- Maç içi yerel oyuncunun silah veya eşya skin ID'sini lobby'deki veriye göre sahte yap
-					-- Örnek: Eğer InItemID = 101004 (M416) ise, buz diyarı ID'sini döndür.
-					-- YARGI ENGINE bu kısmı otomatik dinamik bağlayacak!
+					-- Silah veya çanta skin ID'si maç içi
+					local wpSkin = Yargi.SavedData.Weapons[tonumber(InItemID)]
+					if wpSkin and tonumber(wpSkin) > 0 then
+						return tonumber(wpSkin)
+					end
 				end
 				return originalSkin
+			end
+			
+			local old_get_slot = CharacterAvatarComponent.GetSlotSyncData
+			if old_get_slot then
+				CharacterAvatarComponent.GetSlotSyncData = function(self, InSlotType)
+					local originalData = old_get_slot(self, InSlotType)
+					local uPawn = self:GetOwner()
+					if uPawn and uPawn.IsSelf and uPawn:IsSelf() then
+						if InSlotType == 5 then -- Clothes
+							local fakeItems = Yargi.GetFallbackPacket()
+							for _, insID in pairs(Yargi.SavedData.Clothes) do
+								local item = fakeItems[tonumber(insID)]
+								if item and item.res_id then
+									if originalData and type(originalData) == "table" then
+										originalData.ItemID = item.res_id
+									end
+								end
+							end
+						end
+					end
+					return originalData
+				end
 			end
 		end
 		
@@ -1695,7 +1713,18 @@ function Yargi.HookInMatchAvatar()
 				
 				local uPawn = self:GetOwner()
 				if uPawn and uPawn.IsSelf and uPawn:IsSelf() then
-					-- Silah eline yüklendiğinde skinini override et
+					-- Maç içi silah skin zorlama
+					local baseWeaponID = 0
+					if DefinedID and type(DefinedID) == "table" and DefinedID.TypeSpecificID then
+						baseWeaponID = DefinedID.TypeSpecificID
+					elseif type(DefinedID) == "number" then
+						baseWeaponID = DefinedID
+					end
+					
+					local wpSkin = Yargi.SavedData.Weapons[tonumber(baseWeaponID)]
+					if wpSkin and tonumber(wpSkin) > 0 and self.ChangeAllMeshToFeatureMaterial then
+						-- Ufak bir hileyle modeli zorla değiştirme (eğer motor destekliyorsa)
+					end
 				end
 			end
 		end
@@ -1874,5 +1903,4 @@ function Yargi.ShowInjectSuccess()
 end
 
 Yargi.Init()
-Yargi.ShowInjectSuccess()
 return Yargi
