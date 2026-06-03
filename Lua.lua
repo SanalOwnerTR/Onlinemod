@@ -1878,6 +1878,8 @@ function Yargi.HookProfileSpace()
 				if old_bin then return old_bin(sendSeq, res, bin_profiles, hasRankData, incl_flag) end
 			end
 		end
+	end)
+end
 
 function Yargi.HookWardrobeData(module)
 	if type(module) ~= "table" or module._yargiHooked then return end
