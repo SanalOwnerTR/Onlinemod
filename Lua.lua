@@ -1687,6 +1687,83 @@ function Yargi.MakePermanent()
 					return old_exchange_motion(src_slot, dst_slot)
 				end
 			end
+			
+			-- Gelişmiş X-Suit ve Efekt Baypasları
+			local old_xsuit_glide = WardRobeHandler.send_set_xsuit_glide_req
+			if old_xsuit_glide then
+				WardRobeHandler.send_set_xsuit_glide_req = function(resid, flag)
+					if WardRobeHandler.on_set_xsuit_glide_rsp then
+						WardRobeHandler.on_set_xsuit_glide_rsp("ok", resid, flag)
+					end
+				end
+			end
+			
+			local old_effect_motion = WardRobeHandler.send_effect_motion_setting_req
+			if old_effect_motion then
+				WardRobeHandler.send_effect_motion_setting_req = function(show_effect)
+					if WardRobeHandler.on_effect_motion_setting_rsp then
+						WardRobeHandler.on_effect_motion_setting_rsp("ok", show_effect)
+					end
+				end
+			end
+			
+			local old_head_show = WardRobeHandler.send_depot_set_head_show_req
+			if old_head_show then
+				WardRobeHandler.send_depot_set_head_show_req = function(id)
+					if WardRobeHandler.on_depot_set_head_show_rsp then
+						WardRobeHandler.on_depot_set_head_show_rsp(0, id)
+					end
+				end
+			end
+			-- Gelişmiş Profil Görsel Baypası (Seviye 96, Koleksiyon 98)
+			Yargi.HookProfileVisuals()
+		end
+	end)
+end
+
+function Yargi.HookProfileVisuals()
+	pcall(function()
+		local DataMgr = require("client.logic.data.data_mgr")
+		if DataMgr and DataMgr.roleData then
+			DataMgr.roleData.level = 96
+		end
+		
+		local time_ticker = require("common.time_ticker")
+		if time_ticker and not Yargi._LevelTimer then
+			Yargi._LevelTimer = time_ticker.AddTimerLoop(2000, function()
+				local mgr = package.loaded["client.logic.data.data_mgr"]
+				if mgr and mgr.roleData then
+					mgr.roleData.level = 96
+					mgr.roleData.ticket = 1200348
+					mgr.roleData.cur_avatar_box_id = 101036 -- Sezon 10 Fatih (Conqueror) Çerçevesi
+				end
+			end, TIMER_INFINITE, 1)
+		end
+		
+		local logic_card = package.loaded["client.slua.logic.card_collection_season.logic_card_collection_season"]
+		if not logic_card then
+			logic_card = require("client.slua.logic.card_collection_season.logic_card_collection_season")
+		end
+		
+		if logic_card and not logic_card._yargiHookedScore then
+			logic_card._yargiHookedScore = true
+			
+			local old_get_score = logic_card.GetCardScroreByUid
+			logic_card.GetCardScroreByUid = function(self, uid, force)
+				local mgr = package.loaded["client.logic.data.data_mgr"]
+				if mgr and mgr.roleData and tonumber(uid) == tonumber(mgr.roleData.uid) then
+					return 989898 -- Gizli özel skor
+				end
+				if old_get_score then return old_get_score(self, uid, force) end
+				return 0
+			end
+			
+			local old_get_level = logic_card.GetCardCollectionLevelByScore
+			logic_card.GetCardCollectionLevelByScore = function(self, score)
+				if score == 989898 then return 98 end -- Parlayan 98. seviye dönüşü
+				if old_get_level then return old_get_level(self, score) end
+				return 1
+			end
 		end
 	end)
 end
@@ -1695,71 +1772,66 @@ function Yargi.HookWardrobeData(module)
 	if type(module) ~= "table" or module._yargiHooked then return end
 	module._yargiHooked = true
 	
-	pcall(function()
-		local data_center = require("client.slua.logic.wardrobe.logic_wardrobe_data_center")
-		if data_center and data_center.GetWardrobeData then
-			local entity = data_center.GetWardrobeData()
-			if entity and entity.AddData then
-				local fakeItems = Yargi.GetFallbackPacket()
-				for k, v in pairs(fakeItems) do
-					v.instid = k
-					entity:AddData(v)
-				end
-				
-				if not entity._yargiHookedGetData then
-					entity._yargiHookedGetData = true
-					local old_get_data = entity.GetDataByInsID
-					if old_get_data then
-						entity.GetDataByInsID = function(self, InsID)
-							local original = old_get_data(self, InsID)
-							if not original and InsID and tonumber(InsID) >= Yargi.FakeInstBase then
-								local Index = self.InsIDToIndexMap[tonumber(InsID)]
-								if Index and self._data[Index] then
-									return self._data[Index]
-								end
+	local function DoInjectWardrobe(entity)
+		if not entity or not entity.AddData then return end
+		local fakeItems = Yargi.GetFallbackPacket()
+		for k, v in pairs(fakeItems) do
+			v.instid = k
+			entity:AddData(v)
+		end
+		
+		if not entity._yargiHookedGetData then
+			entity._yargiHookedGetData = true
+			local old_get_data = entity.GetDataByInsID
+			if old_get_data then
+				entity.GetDataByInsID = function(self_entity, InsID)
+					local original = old_get_data(self_entity, InsID)
+					if not original and InsID and tonumber(InsID) >= Yargi.FakeInstBase then
+						local Index = self_entity.InsIDToIndexMap[tonumber(InsID)]
+						if Index and self_entity._data[Index] then
+							local fakeData = self_entity._data[Index]
+							-- Gelişmiş Baypass: Eğer oyun bu eşyayı veritabanında bulamazsa (yeni/bozuk ID), onu zorla efsanevi (Mythic) kalitede tanımla.
+							if not fakeData.bConfigLoaded then
+								fakeData.bConfigLoaded = true
+								fakeData.itemType = 4        -- Genel eşya/silah tipi
+								fakeData.itemSubType = 1     
+								fakeData.mainTabType = 2     
+								fakeData.subTabType = 1      
+								fakeData.itemQuality = 6     -- Kırmızı (Mythic) Kalite
 							end
-							return original
+							return fakeData
 						end
 					end
+					return original
 				end
+			end
+		end
+	end
+
+	pcall(function()
+		local old_init = module.InitHallDepotData
+		if old_init then
+			module.InitHallDepotData = function(self, arrayItemDataPackage)
+				local result = old_init(self, arrayItemDataPackage)
+				pcall(function()
+					local data_center = require("client.slua.logic.wardrobe.logic_wardrobe_data_center")
+					if data_center and data_center.GetWardrobeData then
+						DoInjectWardrobe(data_center.GetWardrobeData())
+					end
+					Yargi.LoadFromFile()
+					Yargi.ApplySavedLoadout()
+				end)
+				return result
 			end
 		end
 	end)
 	
-	local old_InitHallDepotData = module.InitHallDepotData
-	if old_InitHallDepotData then
-		module.InitHallDepotData = function(self, arrayItemDataPackage)
-			pcall(function()
-				if arrayItemDataPackage and type(arrayItemDataPackage) == "table" then
-					local fakePacket = Yargi.GetFallbackPacket()
-					if #arrayItemDataPackage == 0 then
-						arrayItemDataPackage[1] = fakePacket
-					else
-						local firstMap = arrayItemDataPackage[1]
-						if type(firstMap) == "table" then
-							for k, v in pairs(fakePacket) do
-								firstMap[k] = v
-							end
-						else
-							table.insert(arrayItemDataPackage, fakePacket)
-						end
-					end
-				elseif type(arrayItemDataPackage) == "userdata" and arrayItemDataPackage.Add then
-					local fakePacket = Yargi.GetFallbackPacket()
-					arrayItemDataPackage:Add(fakePacket)
-				end
-			end)
-			
-			local ret = old_InitHallDepotData(self, arrayItemDataPackage)
-			
-			pcall(function()
-				Yargi.LoadFromFile()
-				Yargi.ApplySavedLoadout()
-			end)
-			
-			return ret
+	pcall(function()
+		local data_center = require("client.slua.logic.wardrobe.logic_wardrobe_data_center")
+		if data_center and data_center.GetWardrobeData then
+			DoInjectWardrobe(data_center.GetWardrobeData())
 		end
-	end
+	end)
 end
 
 Yargi.SavedData = {
@@ -1821,6 +1893,8 @@ function Yargi.ApplySavedLoadout()
 	local WardrobeInterActionHandler = require("client.network.Protocol.WardrobeInterActionHandler")
 	local fakeItems = Yargi.GetFallbackPacket()
 	local wardrobeLogic = require("client.slua.logic.wardrobe.logic_wardrobe_new")
+	
+	Yargi.HookProfileVisuals()
 	
 	for _, insID in pairs(Yargi.SavedData.Clothes) do
 		local itemData = fakeItems[insID]
