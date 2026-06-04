@@ -1479,67 +1479,67 @@ function Yargi.GetFallbackPacket()
 	return packet
 end
 
+-- ============================================================
+-- YARGI ENGINE v7.0 - REAL-TIME SKIN SYSTEM
+-- Orijinal Lua modülleri tam analiz edildi ve en agresif
+-- hook yöntemi uygulandı. Tüm validity check'ler bypass'lanır.
+-- ============================================================
+
+local YARGI_HOOKED_MODULES = {}
+
+local function YargiForceHookModule(modPath, hookFn)
+	if YARGI_HOOKED_MODULES[modPath] then return end
+	pcall(function()
+		local mod = package.loaded[modPath]
+		if not mod then
+			local ok, res = pcall(require, modPath)
+			if ok and res then mod = res end
+		end
+		if mod then
+			YARGI_HOOKED_MODULES[modPath] = true
+			hookFn(mod)
+		end
+	end)
+end
+
 function Yargi.MakePermanent()
-	pcall(function()
-		local lgd_wpn = package.loaded["client.slua.logic.wardrobe.logic_legend_weapon"] or _G.logic_legend_weapon
-		if not lgd_wpn then
-			local ok, res = pcall(require, "client.slua.logic.wardrobe.logic_legend_weapon")
-			if ok then lgd_wpn = res end
-		end
-		if lgd_wpn then
-			if lgd_wpn.GetPermissionType then
-				lgd_wpn.GetPermissionType = function() return 4 end
-			end
-			if lgd_wpn.GetActivateStatus then
-				lgd_wpn.GetActivateStatus = function() return 4 end
-			end
-			if lgd_wpn.IsLgdWpnValid then
-				lgd_wpn.IsLgdWpnValid = function() return true end
-			end
-			if lgd_wpn.CheckValidity then
-				lgd_wpn.CheckValidity = function() return true end
-			end
-			if lgd_wpn._HasPermanentCard then
-				lgd_wpn._HasPermanentCard = function() return true end
-			end
-		end
+	-- Legend weapon bypass
+	YargiForceHookModule("client.slua.logic.wardrobe.logic_legend_weapon", function(m)
+		m.GetPermissionType = function() return 4 end
+		m.GetActivateStatus = function() return 4 end
+		m.IsLgdWpnValid    = function() return true end
+		m.CheckValidity    = function() return true end
+		m._HasPermanentCard = function() return true end
+		m.IsExpired        = function() return false end
+		m.GetExpireTs      = function() return 0 end
+	end)
+	-- Legend suit bypass
+	YargiForceHookModule("client.slua.logic.wardrobe.logic_legend_suit", function(m)
+		m.GetPermissionType = function() return 4 end
+		m.GetActivateStatus = function() return 4 end
+		m.IsLgdSuitValid   = function() return true end
+		m.CheckValidity    = function() return true end
+		m._HasPermanentCard = function() return true end
+		m.IsExpired        = function() return false end
+		m.GetExpireTs      = function() return 0 end
 	end)
 	
-	pcall(function()
-		local lgd_suit = package.loaded["client.slua.logic.wardrobe.logic_legend_suit"] or _G.logic_legend_suit
-		if not lgd_suit then
-			local ok, res = pcall(require, "client.slua.logic.wardrobe.logic_legend_suit")
-			if ok then lgd_suit = res end
-		end
-		if lgd_suit then
-			if lgd_suit.GetPermissionType then
-				lgd_suit.GetPermissionType = function() return 4 end
-			end
-			if lgd_suit.GetActivateStatus then
-				lgd_suit.GetActivateStatus = function() return 4 end
-			end
-			if lgd_suit.IsLgdSuitValid then
-				lgd_suit.IsLgdSuitValid = function() return true end
-			end
-			if lgd_suit.CheckValidity then
-				lgd_suit.CheckValidity = function() return true end
-			end
-			if lgd_suit._HasPermanentCard then
-				lgd_suit._HasPermanentCard = function() return true end
-			end
-		end
+	-- X-Suit bypass
+	YargiForceHookModule("client.slua.logic.xsuit.logic_xsuit", function(m)
+		m.IsLgdSuitValid   = function() return true end
+		m.CheckValidity    = function() return true end
+		m.IsExpired        = function() return false end
+		m.GetPermissionType = function() return 4 end
 	end)
-	
-	pcall(function()
-		local xsuit = package.loaded["client.slua.logic.xsuit.logic_xsuit"] or _G.logic_xsuit
-		if not xsuit then
-			local ok, res = pcall(require, "client.slua.logic.xsuit.logic_xsuit")
-			if ok then xsuit = res end
-		end
-		if xsuit then
-			if xsuit.IsLgdSuitValid then xsuit.IsLgdSuitValid = function() return true end end
-			if xsuit.CheckValidity then xsuit.CheckValidity = function() return true end end
-		end
+	-- Wardrobe gun validity bypass
+	YargiForceHookModule("client.slua.logic.wardrobe.logic_wardrobe_gun", function(m)
+		if m.CheckSkinValidity then m.CheckSkinValidity = function() return true end end
+		if m.IsExpired then m.IsExpired = function() return false end end
+	end)
+	-- Wardrobe new (outfit) validity bypass
+	YargiForceHookModule("client.slua.logic.wardrobe.logic_wardrobe_new", function(m)
+		if m.CheckValidity then m.CheckValidity = function() return true end end
+		if m.IsExpired then m.IsExpired = function() return false end end
 	end)
 	
 	-- Ağa giden giyme/çıkarma isteklerini yakalayıp sahte başarılı cevap döndürüyoruz! (Eşyanın karakterin üzerine gelmesi için kritik!)
@@ -1723,216 +1723,86 @@ end
 
 function Yargi.HookProfileVisuals()
 	pcall(function()
-		local DataMgr = require("client.logic.data.data_mgr")
+		local DataMgr = package.loaded["client.logic.data.data_mgr"] or require("client.logic.data.data_mgr")
 		if DataMgr and DataMgr.roleData then
 			DataMgr.roleData.level = 96
 		end
 		
-		local time_ticker = require("common.time_ticker")
+		local time_ticker = package.loaded["common.time_ticker"] or require("common.time_ticker")
 		if time_ticker and not Yargi._LevelTimer then
 			Yargi._LevelTimer = time_ticker.AddTimerLoop(2000, function()
 				local mgr = package.loaded["client.logic.data.data_mgr"]
 				if mgr and mgr.roleData then
 					mgr.roleData.level = 96
-					mgr.roleData.ticket = 1200348
-					mgr.ticket = 1200348
-					
-					if mgr.roleData.cur_avatar_box_id ~= 101036 then
-						mgr.roleData.cur_avatar_box_id = 101036 -- Sezon 10 Fatih (Conqueror) Çerçevesi
-						local RoleInfoAvatarFrameSystem = package.loaded["client.logic.roleinfo.logic_roleinfo_avatar_frame"]
-						if RoleInfoAvatarFrameSystem and RoleInfoAvatarFrameSystem.UpdateCurAvatarBoxID then
-							pcall(function() RoleInfoAvatarFrameSystem.UpdateCurAvatarBoxID(101036) end)
-						end
-						if RecommendHandler and RecommendHandler.OnUCChange then
-							pcall(function() RecommendHandler.OnUCChange(1200348, 1200348) end)
-						end
-					end
 				end
 			end, TIMER_INFINITE, 1)
 		end
-		
-		local logic_card = package.loaded["client.slua.logic.card_collection_season.logic_card_collection_season"]
-		if not logic_card then
-			logic_card = require("client.slua.logic.card_collection_season.logic_card_collection_season")
-		end
-		
-		if logic_card and not logic_card._yargiHookedScore then
-			logic_card._yargiHookedScore = true
-			
-			local old_get_score = logic_card.GetCardScroreByUid
-			logic_card.GetCardScroreByUid = function(self, uid, force)
-				local mgr = package.loaded["client.logic.data.data_mgr"]
-				if mgr and mgr.roleData and tonumber(uid) == tonumber(mgr.roleData.uid) then
-					return 989898 -- Gizli özel skor
-				end
-				if old_get_score then return old_get_score(self, uid, force) end
-				return 0
-			end
-			
-			local old_get_level = logic_card.GetCardCollectionLevelByScore
-			logic_card.GetCardCollectionLevelByScore = function(self, score)
-				if score == 989898 then return 98 end -- Parlayan 98. seviye dönüşü
-				if old_get_level then return old_get_level(self, score) end
-				return 1
-			end
-			
-			local old_show_info = logic_card.on_card_collect_query_show_info_rsp
-			if old_show_info then
-				logic_card.on_card_collect_query_show_info_rsp = function(self, target_uid, show_info)
-					local mgr = package.loaded["client.logic.data.data_mgr"]
-					if mgr and mgr.roleData and tostring(target_uid) == tostring(mgr.roleData.uid) then
-						if not show_info then show_info = {} end
-						show_info.career_score = 989898
-					end
-					return old_show_info(self, target_uid, show_info)
-				end
-			end
-		end
-		
-		Yargi.HookProfileSpace()
 	end)
 end
 
-function Yargi.HookProfileSpace()
-	pcall(function()
-		local ProfileHander = package.loaded["client.network.Protocol.ProfileHander"]
-		if not ProfileHander then
-			ProfileHander = require("client.network.Protocol.ProfileHander")
-		end
-		
-		if ProfileHander and not ProfileHander._yargiHookedProfile then
-			ProfileHander._yargiHookedProfile = true
-			
-			-- 1. 3D Avatar ve PSpace Kıyafetlerini Doldur (İç çamaşırında kalmasın)
-			local old_avatar = ProfileHander.on_get_avatar_show_rsp
-			ProfileHander.on_get_avatar_show_rsp = function(res, target_uid, data)
-				local mgr = package.loaded["client.logic.data.data_mgr"]
-				if res == 0 and data and mgr and mgr.roleData and tostring(target_uid) == tostring(mgr.roleData.uid) then
-					if not data.pspace_wear_ext then data.pspace_wear_ext = {} end
-					if not data.wear_ext then data.wear_ext = {} end
-					
-					local fakeItems = Yargi.GetFallbackPacket()
-					-- Giysiler (Clothes)
-					for _, insID in pairs(Yargi.SavedData.Clothes) do
-						local itemData = fakeItems[tonumber(insID)]
-						if itemData and itemData.res_id then
-							-- Kıyafetin ID'si ve konumu
-							local res_id = itemData.res_id
-							local equip_pos = 2 -- CLOTH
-							-- type check: 1=head, 2=cloth, 4=pants, etc. Ama rastgele tüm wear_ext slotlarına basabiliriz, oyun kendi ayıklar
-							-- En temel X-Suit slotu 2'dir (SHOW_POS_CLOTH)
-							data.pspace_wear_ext[2] = { res_id, 0, 0 }
-							data.wear_ext[2] = { res_id, 0, 0 }
-						end
-					end
-					
-					-- Silahlar (Weapons Showcase)
-					if data.pspace_weapon_pendants == nil then data.pspace_weapon_pendants = {} end
-					-- PSpace silah slotlarına eldeki silahları döşe
-					local w_idx = 1
-					for w_id, s_id in pairs(Yargi.SavedData.Weapons) do
-						local itemData = fakeItems[tonumber(s_id)]
-						if itemData and itemData.res_id then
-							-- pspace_weapon
-							if not data.pspace_weapon then data.pspace_weapon = {} end
-							data.pspace_weapon[w_idx] = itemData.res_id
-							w_idx = w_idx + 1
+-- Tüm wardrobe entity'lerine sahte item'ları enjekte eder
+local function YargiDoInjectWardrobe(entity)
+	if not entity or not entity.AddData then return end
+	local fakeItems = Yargi.GetFallbackPacket()
+	for k, v in pairs(fakeItems) do
+		v.instid = k
+		-- Konfigürasyonu önceden doldur (Mythic kalite)
+		v.bConfigLoaded = true
+		v.itemType     = v.itemType or 4
+		v.itemSubType  = v.itemSubType or 1
+		v.mainTabType  = v.mainTabType or 2
+		v.subTabType   = v.subTabType or 1
+		v.itemQuality  = 6  -- Mythic/Kırmızı
+		v.valid_hours  = 0  -- Sonsuz
+		v.expire_ts    = 0  -- Sonsuz
+		pcall(function() entity:AddData(v) end)
+	end
+	-- GetDataByInsID hook - sahte item'ları döndür
+	if not entity._yargiHookedGetData then
+		entity._yargiHookedGetData = true
+		local old_get = entity.GetDataByInsID
+		if old_get then
+			entity.GetDataByInsID = function(self_e, InsID)
+				local orig = old_get(self_e, InsID)
+				if not orig and InsID and tonumber(InsID) >= Yargi.FakeInstBase then
+					local cached = fakeItems[tonumber(InsID)]
+					if cached then return cached end
+					-- index map fallback
+					if self_e.InsIDToIndexMap then
+						local idx = self_e.InsIDToIndexMap[tonumber(InsID)]
+						if idx and self_e._data and self_e._data[idx] then
+							return self_e._data[idx]
 						end
 					end
 				end
-				if old_avatar then return old_avatar(res, target_uid, data) end
-			end
-			
-			-- 2. İstatistik, Kademe ve Fatih Baypası
-			local old_bin = ProfileHander.on_batch_get_bin_profile_rsp
-			ProfileHander.on_batch_get_bin_profile_rsp = function(sendSeq, res, bin_profiles, hasRankData, incl_flag)
-				local success, profiles = pcall(function()
-					return slua.LuaArchiverDecode(LuaStateWrapper, bin_profiles)
-				end)
-				
-				if success and profiles and type(profiles) == "table" then
-					local mgr = package.loaded["client.logic.data.data_mgr"]
-					for k, v in pairs(profiles) do
-						if mgr and mgr.roleData and tostring(v.uid) == tostring(mgr.roleData.uid) then
-							v.level = 96
-							v.ticket = 1200348
-							v.popularity = 99999999
-							
-							if not v.rank_info then v.rank_info = {} end
-							-- 8 = Conqueror (Fatih) genelde
-							v.rank_info.max_segment_level = 8
-							v.rank_info.cur_segment_level = 8
-							v.rank_info.win_ratio = 85.5
-							v.rank_info.kd_ratio = 15.4
-							
-							v.cur_avatar_box_id = 101036
-							
-							-- Koleksiyon Puanı vb (varsa)
-							v.career_score = 989898
-						end
-					end
-					local spoofed_bin = slua.LuaArchiverEncode(LuaStateWrapper, profiles)
-					if old_bin then return old_bin(sendSeq, res, spoofed_bin, hasRankData, incl_flag) end
-				end
-				
-				if old_bin then return old_bin(sendSeq, res, bin_profiles, hasRankData, incl_flag) end
+				return orig
 			end
 		end
-	end)
+		-- IsExpired hook - sahte item'lar için her zaman false
+		local old_expired = entity.IsExpired
+		if old_expired then
+			entity.IsExpired = function(self_e, InsID)
+				if InsID and tonumber(InsID) >= Yargi.FakeInstBase then return false end
+				return old_expired(self_e, InsID)
+			end
+		end
+	end
 end
 
 function Yargi.HookWardrobeData(module)
 	if type(module) ~= "table" or module._yargiHooked then return end
 	module._yargiHooked = true
 	
-	local function DoInjectWardrobe(entity)
-		if not entity or not entity.AddData then return end
-		local fakeItems = Yargi.GetFallbackPacket()
-		for k, v in pairs(fakeItems) do
-			v.instid = k
-			entity:AddData(v)
-		end
-		
-		if not entity._yargiHookedGetData then
-			entity._yargiHookedGetData = true
-			local old_get_data = entity.GetDataByInsID
-			if old_get_data then
-				entity.GetDataByInsID = function(self_entity, InsID)
-					local original = old_get_data(self_entity, InsID)
-					if not original and InsID and tonumber(InsID) >= Yargi.FakeInstBase then
-						local Index = self_entity.InsIDToIndexMap[tonumber(InsID)]
-						if Index and self_entity._data[Index] then
-							local fakeData = self_entity._data[Index]
-							-- Gelişmiş Baypass: Eğer oyun bu eşyayı veritabanında bulamazsa (yeni/bozuk ID), onu zorla efsanevi (Mythic) kalitede tanımla.
-							if not fakeData.bConfigLoaded then
-								fakeData.bConfigLoaded = true
-								fakeData.itemType = 4        -- Genel eşya/silah tipi
-								fakeData.itemSubType = 1     
-								fakeData.mainTabType = 2     
-								fakeData.subTabType = 1      
-								fakeData.itemQuality = 6     -- Kırmızı (Mythic) Kalite
-							end
-							return fakeData
-						end
-					end
-					return original
-				end
-			end
-		end
-	end
-
 	pcall(function()
 		local old_init = module.InitHallDepotData
 		if old_init then
 			module.InitHallDepotData = function(self, arrayItemDataPackage)
 				local result = old_init(self, arrayItemDataPackage)
 				pcall(function()
-					local data_center = require("client.slua.logic.wardrobe.logic_wardrobe_data_center")
-					if data_center and data_center.GetWardrobeData then
-						DoInjectWardrobe(data_center.GetWardrobeData())
-					end
+					Yargi.InjectAllWardrobeEntities()
 					Yargi.LoadFromFile()
 					Yargi.ApplySavedLoadout()
+					Yargi.StartRealTimeLoop()
 				end)
 				return result
 			end
@@ -1940,11 +1810,36 @@ function Yargi.HookWardrobeData(module)
 	end)
 	
 	pcall(function()
-		local data_center = require("client.slua.logic.wardrobe.logic_wardrobe_data_center")
-		if data_center and data_center.GetWardrobeData then
-			DoInjectWardrobe(data_center.GetWardrobeData())
-		end
+		Yargi.InjectAllWardrobeEntities()
 	end)
+end
+
+-- Tüm wardrobe data center varyantlarını hookla
+function Yargi.InjectAllWardrobeEntities()
+	local dataCenterPaths = {
+		"client.slua.logic.wardrobe.logic_wardrobe_data_center",
+		"client.slua.logic.wardrobe.wardrobe_data",
+	}
+	for _, path in ipairs(dataCenterPaths) do
+		pcall(function()
+			local mod = package.loaded[path]
+			if not mod then
+				local ok, res = pcall(require, path)
+				if ok then mod = res end
+			end
+			if mod then
+				-- data center pattern
+				if mod.GetWardrobeData then
+					YargiDoInjectWardrobe(mod.GetWardrobeData())
+				end
+				-- wardrobe_data singleton pattern
+				if mod.GetHallDepotItemDataByInsID and not mod._yargiEntityHooked then
+					mod._yargiEntityHooked = true
+					YargiDoInjectWardrobe(mod)
+				end
+			end
+		end)
+	end
 end
 
 Yargi.SavedData = {
@@ -2042,26 +1937,56 @@ function Yargi.ApplySavedLoadout()
 	end
 end
 
+-- Real-time skin loop: her 3 saniyede loadout yeniden uygular
+function Yargi.StartRealTimeLoop()
+	if Yargi._realTimeStarted then return end
+	Yargi._realTimeStarted = true
+	
+	pcall(function()
+		local time_ticker = package.loaded["common.time_ticker"] or require("common.time_ticker")
+		if time_ticker and time_ticker.AddTimerLoop then
+			local TIMER_INFINITE = TIMER_INFINITE or -1
+			time_ticker.AddTimerLoop(3000, function()
+				if not _G.YARGI_ALIVE then return end
+				pcall(function() Yargi.MakePermanent() end)
+				pcall(function() Yargi.InjectAllWardrobeEntities() end)
+				pcall(function() Yargi.ApplySavedLoadout() end)
+			end, TIMER_INFINITE, 1)
+		end
+	end)
+end
+
 function Yargi.Init()
 	if not _G.YARGI_ALIVE then return end
 
+	-- Require interceptor: wardrobe modülleri yüklenince hemen hookla
 	local old_require = _G.require
 	_G.require = function(name)
 		local module = old_require(name)
-		local ok, err = pcall(function()
+		pcall(function()
 			if name == "client.slua.logic.wardrobe.wardrobe_data" then
 				Yargi.HookWardrobeData(module)
+			elseif name == "client.slua.logic.wardrobe.logic_wardrobe_data_center" then
+				if module and module.GetWardrobeData then
+					YargiDoInjectWardrobe(module.GetWardrobeData())
+				end
+			elseif name == "client.slua.logic.wardrobe.logic_legend_weapon"
+			    or name == "client.slua.logic.wardrobe.logic_legend_suit"
+			    or name == "client.slua.logic.xsuit.logic_xsuit" then
+				YARGI_HOOKED_MODULES[name] = nil  -- yeniden hook'a izin ver
+				Yargi.MakePermanent()
 			end
 		end)
 		return module
 	end
 
-	local existing = package.loaded["client.slua.logic.wardrobe.wardrobe_data"]
-	if existing then
-		Yargi.HookWardrobeData(existing)
-	end
+	-- Zaten yüklü modülleri hemen hookla
+	local existing_wd = package.loaded["client.slua.logic.wardrobe.wardrobe_data"]
+	if existing_wd then Yargi.HookWardrobeData(existing_wd) end
 	
+	Yargi.InjectAllWardrobeEntities()
 	Yargi.MakePermanent()
+	Yargi.StartRealTimeLoop()
 end
 
 function Yargi.ShowInjectSuccess()
