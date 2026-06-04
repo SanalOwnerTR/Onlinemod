@@ -1740,23 +1740,23 @@ function Yargi.HookProfileVisuals()
 	end)
 end
 
--- Tüm wardrobe entity'lerine sahte item'ları enjekte eder
+-- Tüm wardrobe entity'lerine sahte item'ları enjekte eder (tek sefer)
 local function YargiDoInjectWardrobe(entity)
 	if not entity or not entity.AddData then return end
+	-- CRASH FIX: Her entity sadece BİR KEZ inject edilir
+	if entity._yargiInjected then return end
+	entity._yargiInjected = true
+
 	local fakeItems = Yargi.GetFallbackPacket()
 	for k, v in pairs(fakeItems) do
-		v.instid = k
-		-- Konfigürasyonu önceden doldur (Mythic kalite)
+		v.instid    = k
 		v.bConfigLoaded = true
-		v.itemType     = v.itemType or 4
-		v.itemSubType  = v.itemSubType or 1
-		v.mainTabType  = v.mainTabType or 2
-		v.subTabType   = v.subTabType or 1
-		v.itemQuality  = 6  -- Mythic/Kırmızı
-		v.valid_hours  = 0  -- Sonsuz
-		v.expire_ts    = 0  -- Sonsuz
+		v.itemQuality   = 6  -- Mythic
+		v.valid_hours   = 0
+		v.expire_ts     = 0
 		pcall(function() entity:AddData(v) end)
 	end
+
 	-- GetDataByInsID hook - sahte item'ları döndür
 	if not entity._yargiHookedGetData then
 		entity._yargiHookedGetData = true
@@ -1767,7 +1767,6 @@ local function YargiDoInjectWardrobe(entity)
 				if not orig and InsID and tonumber(InsID) >= Yargi.FakeInstBase then
 					local cached = fakeItems[tonumber(InsID)]
 					if cached then return cached end
-					-- index map fallback
 					if self_e.InsIDToIndexMap then
 						local idx = self_e.InsIDToIndexMap[tonumber(InsID)]
 						if idx and self_e._data and self_e._data[idx] then
@@ -1778,7 +1777,6 @@ local function YargiDoInjectWardrobe(entity)
 				return orig
 			end
 		end
-		-- IsExpired hook - sahte item'lar için her zaman false
 		local old_expired = entity.IsExpired
 		if old_expired then
 			entity.IsExpired = function(self_e, InsID)
@@ -1814,7 +1812,7 @@ function Yargi.HookWardrobeData(module)
 	end)
 end
 
--- Tüm wardrobe data center varyantlarını hookla
+-- Sadece YÜKLÜ modülleri hooklar - lobby öncesi require YAPMAZ (crash önleme)
 function Yargi.InjectAllWardrobeEntities()
 	local dataCenterPaths = {
 		"client.slua.logic.wardrobe.logic_wardrobe_data_center",
@@ -1822,21 +1820,14 @@ function Yargi.InjectAllWardrobeEntities()
 	}
 	for _, path in ipairs(dataCenterPaths) do
 		pcall(function()
+			-- CRASH FIX: sadece zaten yüklü olanı kullan, require ÇAĞIRMA
 			local mod = package.loaded[path]
-			if not mod then
-				local ok, res = pcall(require, path)
-				if ok then mod = res end
+			if not mod then return end
+			if mod.GetWardrobeData then
+				YargiDoInjectWardrobe(mod.GetWardrobeData())
 			end
-			if mod then
-				-- data center pattern
-				if mod.GetWardrobeData then
-					YargiDoInjectWardrobe(mod.GetWardrobeData())
-				end
-				-- wardrobe_data singleton pattern
-				if mod.GetHallDepotItemDataByInsID and not mod._yargiEntityHooked then
-					mod._yargiEntityHooked = true
-					YargiDoInjectWardrobe(mod)
-				end
+			if mod.GetHallDepotItemDataByInsID then
+				YargiDoInjectWardrobe(mod)
 			end
 		end)
 	end
@@ -1937,21 +1928,28 @@ function Yargi.ApplySavedLoadout()
 	end
 end
 
--- Real-time skin loop: her 3 saniyede loadout yeniden uygular
+-- Real-time validity bypass loop (her 5s)
+-- CRASH FIX: ApplySavedLoadout loop'tan ÇIKARILDI
+-- on_puton_rsp'yi her 3s flood etmek crash'a sebep oluyor
 function Yargi.StartRealTimeLoop()
 	if Yargi._realTimeStarted then return end
 	Yargi._realTimeStarted = true
-	
+
 	pcall(function()
-		local time_ticker = package.loaded["common.time_ticker"] or require("common.time_ticker")
+		-- Sadece yüklü ise time_ticker kullan
+		local time_ticker = package.loaded["common.time_ticker"]
+		if not time_ticker then
+			local ok, res = pcall(require, "common.time_ticker")
+			if ok then time_ticker = res end
+		end
 		if time_ticker and time_ticker.AddTimerLoop then
-			local TIMER_INFINITE = TIMER_INFINITE or -1
-			time_ticker.AddTimerLoop(3000, function()
+			local INF = TIMER_INFINITE or -1
+			-- Sadece validity bypass'ları yenile (inject ve loadout değil)
+			time_ticker.AddTimerLoop(5000, function()
 				if not _G.YARGI_ALIVE then return end
+				YARGI_HOOKED_MODULES = {}  -- bypass'ların yenilenmesine izin ver
 				pcall(function() Yargi.MakePermanent() end)
-				pcall(function() Yargi.InjectAllWardrobeEntities() end)
-				pcall(function() Yargi.ApplySavedLoadout() end)
-			end, TIMER_INFINITE, 1)
+			end, INF, 1)
 		end
 	end)
 end
