@@ -1479,67 +1479,67 @@ function Yargi.GetFallbackPacket()
 	return packet
 end
 
--- ============================================================
--- YARGI ENGINE v7.0 - REAL-TIME SKIN SYSTEM
--- Orijinal Lua modülleri tam analiz edildi ve en agresif
--- hook yöntemi uygulandı. Tüm validity check'ler bypass'lanır.
--- ============================================================
-
-local YARGI_HOOKED_MODULES = {}
-
-local function YargiForceHookModule(modPath, hookFn)
-	if YARGI_HOOKED_MODULES[modPath] then return end
-	pcall(function()
-		local mod = package.loaded[modPath]
-		if not mod then
-			local ok, res = pcall(require, modPath)
-			if ok and res then mod = res end
-		end
-		if mod then
-			YARGI_HOOKED_MODULES[modPath] = true
-			hookFn(mod)
-		end
-	end)
-end
-
 function Yargi.MakePermanent()
-	-- Legend weapon bypass
-	YargiForceHookModule("client.slua.logic.wardrobe.logic_legend_weapon", function(m)
-		m.GetPermissionType = function() return 4 end
-		m.GetActivateStatus = function() return 4 end
-		m.IsLgdWpnValid    = function() return true end
-		m.CheckValidity    = function() return true end
-		m._HasPermanentCard = function() return true end
-		m.IsExpired        = function() return false end
-		m.GetExpireTs      = function() return 0 end
-	end)
-	-- Legend suit bypass
-	YargiForceHookModule("client.slua.logic.wardrobe.logic_legend_suit", function(m)
-		m.GetPermissionType = function() return 4 end
-		m.GetActivateStatus = function() return 4 end
-		m.IsLgdSuitValid   = function() return true end
-		m.CheckValidity    = function() return true end
-		m._HasPermanentCard = function() return true end
-		m.IsExpired        = function() return false end
-		m.GetExpireTs      = function() return 0 end
+	pcall(function()
+		local lgd_wpn = package.loaded["client.slua.logic.wardrobe.logic_legend_weapon"] or _G.logic_legend_weapon
+		if not lgd_wpn then
+			local ok, res = pcall(require, "client.slua.logic.wardrobe.logic_legend_weapon")
+			if ok then lgd_wpn = res end
+		end
+		if lgd_wpn then
+			if lgd_wpn.GetPermissionType then
+				lgd_wpn.GetPermissionType = function() return 4 end
+			end
+			if lgd_wpn.GetActivateStatus then
+				lgd_wpn.GetActivateStatus = function() return 4 end
+			end
+			if lgd_wpn.IsLgdWpnValid then
+				lgd_wpn.IsLgdWpnValid = function() return true end
+			end
+			if lgd_wpn.CheckValidity then
+				lgd_wpn.CheckValidity = function() return true end
+			end
+			if lgd_wpn._HasPermanentCard then
+				lgd_wpn._HasPermanentCard = function() return true end
+			end
+		end
 	end)
 	
-	-- X-Suit bypass
-	YargiForceHookModule("client.slua.logic.xsuit.logic_xsuit", function(m)
-		m.IsLgdSuitValid   = function() return true end
-		m.CheckValidity    = function() return true end
-		m.IsExpired        = function() return false end
-		m.GetPermissionType = function() return 4 end
+	pcall(function()
+		local lgd_suit = package.loaded["client.slua.logic.wardrobe.logic_legend_suit"] or _G.logic_legend_suit
+		if not lgd_suit then
+			local ok, res = pcall(require, "client.slua.logic.wardrobe.logic_legend_suit")
+			if ok then lgd_suit = res end
+		end
+		if lgd_suit then
+			if lgd_suit.GetPermissionType then
+				lgd_suit.GetPermissionType = function() return 4 end
+			end
+			if lgd_suit.GetActivateStatus then
+				lgd_suit.GetActivateStatus = function() return 4 end
+			end
+			if lgd_suit.IsLgdSuitValid then
+				lgd_suit.IsLgdSuitValid = function() return true end
+			end
+			if lgd_suit.CheckValidity then
+				lgd_suit.CheckValidity = function() return true end
+			end
+			if lgd_suit._HasPermanentCard then
+				lgd_suit._HasPermanentCard = function() return true end
+			end
+		end
 	end)
-	-- Wardrobe gun validity bypass
-	YargiForceHookModule("client.slua.logic.wardrobe.logic_wardrobe_gun", function(m)
-		if m.CheckSkinValidity then m.CheckSkinValidity = function() return true end end
-		if m.IsExpired then m.IsExpired = function() return false end end
-	end)
-	-- Wardrobe new (outfit) validity bypass
-	YargiForceHookModule("client.slua.logic.wardrobe.logic_wardrobe_new", function(m)
-		if m.CheckValidity then m.CheckValidity = function() return true end end
-		if m.IsExpired then m.IsExpired = function() return false end end
+	
+	pcall(function()
+		local xsuit = package.loaded["client.slua.logic.xsuit.logic_xsuit"] or _G.logic_xsuit
+		if not xsuit then
+			local ok, res = pcall(require, "client.slua.logic.xsuit.logic_xsuit")
+			if ok then xsuit = res end
+		end
+		if xsuit then
+			if xsuit.IsLgdSuitValid then xsuit.IsLgdSuitValid = function() return true end end
+			if xsuit.CheckValidity then xsuit.CheckValidity = function() return true end end
+		end
 	end)
 	
 	-- Ağa giden giyme/çıkarma isteklerini yakalayıp sahte başarılı cevap döndürüyoruz! (Eşyanın karakterin üzerine gelmesi için kritik!)
@@ -1740,67 +1740,58 @@ function Yargi.HookProfileVisuals()
 	end)
 end
 
--- Tüm wardrobe entity'lerine sahte item'ları enjekte eder (tek sefer)
-local function YargiDoInjectWardrobe(entity)
-	if not entity or not entity.AddData then return end
-	-- CRASH FIX: Her entity sadece BİR KEZ inject edilir
-	if entity._yargiInjected then return end
-	entity._yargiInjected = true
-
-	local fakeItems = Yargi.GetFallbackPacket()
-	for k, v in pairs(fakeItems) do
-		v.instid    = k
-		v.bConfigLoaded = true
-		v.itemQuality   = 6  -- Mythic
-		v.valid_hours   = 0
-		v.expire_ts     = 0
-		pcall(function() entity:AddData(v) end)
-	end
-
-	-- GetDataByInsID hook - sahte item'ları döndür
-	if not entity._yargiHookedGetData then
-		entity._yargiHookedGetData = true
-		local old_get = entity.GetDataByInsID
-		if old_get then
-			entity.GetDataByInsID = function(self_e, InsID)
-				local orig = old_get(self_e, InsID)
-				if not orig and InsID and tonumber(InsID) >= Yargi.FakeInstBase then
-					local cached = fakeItems[tonumber(InsID)]
-					if cached then return cached end
-					if self_e.InsIDToIndexMap then
-						local idx = self_e.InsIDToIndexMap[tonumber(InsID)]
-						if idx and self_e._data and self_e._data[idx] then
-							return self_e._data[idx]
-						end
-					end
-				end
-				return orig
-			end
-		end
-		local old_expired = entity.IsExpired
-		if old_expired then
-			entity.IsExpired = function(self_e, InsID)
-				if InsID and tonumber(InsID) >= Yargi.FakeInstBase then return false end
-				return old_expired(self_e, InsID)
-			end
-		end
-	end
-end
-
 function Yargi.HookWardrobeData(module)
 	if type(module) ~= "table" or module._yargiHooked then return end
 	module._yargiHooked = true
 	
+	local function DoInjectWardrobe(entity)
+		if not entity or not entity.AddData then return end
+		local fakeItems = Yargi.GetFallbackPacket()
+		for k, v in pairs(fakeItems) do
+			v.instid = k
+			entity:AddData(v)
+		end
+		
+		if not entity._yargiHookedGetData then
+			entity._yargiHookedGetData = true
+			local old_get_data = entity.GetDataByInsID
+			if old_get_data then
+				entity.GetDataByInsID = function(self_entity, InsID)
+					local original = old_get_data(self_entity, InsID)
+					if not original and InsID and tonumber(InsID) >= Yargi.FakeInstBase then
+						local Index = self_entity.InsIDToIndexMap[tonumber(InsID)]
+						if Index and self_entity._data[Index] then
+							local fakeData = self_entity._data[Index]
+							-- Gelişmiş Baypass: Eğer oyun bu eşyayı veritabanında bulamazsa (yeni/bozuk ID), onu zorla efsanevi (Mythic) kalitede tanımla.
+							if not fakeData.bConfigLoaded then
+								fakeData.bConfigLoaded = true
+								fakeData.itemType = 4        -- Genel eşya/silah tipi
+								fakeData.itemSubType = 1     
+								fakeData.mainTabType = 2     
+								fakeData.subTabType = 1      
+								fakeData.itemQuality = 6     -- Kırmızı (Mythic) Kalite
+							end
+							return fakeData
+						end
+					end
+					return original
+				end
+			end
+		end
+	end
+
 	pcall(function()
 		local old_init = module.InitHallDepotData
 		if old_init then
 			module.InitHallDepotData = function(self, arrayItemDataPackage)
 				local result = old_init(self, arrayItemDataPackage)
 				pcall(function()
-					Yargi.InjectAllWardrobeEntities()
+					local data_center = require("client.slua.logic.wardrobe.logic_wardrobe_data_center")
+					if data_center and data_center.GetWardrobeData then
+						DoInjectWardrobe(data_center.GetWardrobeData())
+					end
 					Yargi.LoadFromFile()
 					Yargi.ApplySavedLoadout()
-					Yargi.StartRealTimeLoop()
 				end)
 				return result
 			end
@@ -1808,29 +1799,11 @@ function Yargi.HookWardrobeData(module)
 	end)
 	
 	pcall(function()
-		Yargi.InjectAllWardrobeEntities()
+		local data_center = require("client.slua.logic.wardrobe.logic_wardrobe_data_center")
+		if data_center and data_center.GetWardrobeData then
+			DoInjectWardrobe(data_center.GetWardrobeData())
+		end
 	end)
-end
-
--- Sadece YÜKLÜ modülleri hooklar - lobby öncesi require YAPMAZ (crash önleme)
-function Yargi.InjectAllWardrobeEntities()
-	local dataCenterPaths = {
-		"client.slua.logic.wardrobe.logic_wardrobe_data_center",
-		"client.slua.logic.wardrobe.wardrobe_data",
-	}
-	for _, path in ipairs(dataCenterPaths) do
-		pcall(function()
-			-- CRASH FIX: sadece zaten yüklü olanı kullan, require ÇAĞIRMA
-			local mod = package.loaded[path]
-			if not mod then return end
-			if mod.GetWardrobeData then
-				YargiDoInjectWardrobe(mod.GetWardrobeData())
-			end
-			if mod.GetHallDepotItemDataByInsID then
-				YargiDoInjectWardrobe(mod)
-			end
-		end)
-	end
 end
 
 Yargi.SavedData = {
@@ -1928,63 +1901,26 @@ function Yargi.ApplySavedLoadout()
 	end
 end
 
--- Real-time validity bypass loop (her 5s)
--- CRASH FIX: ApplySavedLoadout loop'tan ÇIKARILDI
--- on_puton_rsp'yi her 3s flood etmek crash'a sebep oluyor
-function Yargi.StartRealTimeLoop()
-	if Yargi._realTimeStarted then return end
-	Yargi._realTimeStarted = true
-
-	pcall(function()
-		-- Sadece yüklü ise time_ticker kullan
-		local time_ticker = package.loaded["common.time_ticker"]
-		if not time_ticker then
-			local ok, res = pcall(require, "common.time_ticker")
-			if ok then time_ticker = res end
-		end
-		if time_ticker and time_ticker.AddTimerLoop then
-			local INF = TIMER_INFINITE or -1
-			-- Sadece validity bypass'ları yenile (inject ve loadout değil)
-			time_ticker.AddTimerLoop(5000, function()
-				if not _G.YARGI_ALIVE then return end
-				YARGI_HOOKED_MODULES = {}  -- bypass'ların yenilenmesine izin ver
-				pcall(function() Yargi.MakePermanent() end)
-			end, INF, 1)
-		end
-	end)
-end
-
 function Yargi.Init()
 	if not _G.YARGI_ALIVE then return end
 
-	-- Require interceptor: wardrobe modülleri yüklenince hemen hookla
 	local old_require = _G.require
 	_G.require = function(name)
 		local module = old_require(name)
-		pcall(function()
+		local ok, err = pcall(function()
 			if name == "client.slua.logic.wardrobe.wardrobe_data" then
 				Yargi.HookWardrobeData(module)
-			elseif name == "client.slua.logic.wardrobe.logic_wardrobe_data_center" then
-				if module and module.GetWardrobeData then
-					YargiDoInjectWardrobe(module.GetWardrobeData())
-				end
-			elseif name == "client.slua.logic.wardrobe.logic_legend_weapon"
-			    or name == "client.slua.logic.wardrobe.logic_legend_suit"
-			    or name == "client.slua.logic.xsuit.logic_xsuit" then
-				YARGI_HOOKED_MODULES[name] = nil  -- yeniden hook'a izin ver
-				Yargi.MakePermanent()
 			end
 		end)
 		return module
 	end
 
-	-- Zaten yüklü modülleri hemen hookla
-	local existing_wd = package.loaded["client.slua.logic.wardrobe.wardrobe_data"]
-	if existing_wd then Yargi.HookWardrobeData(existing_wd) end
+	local existing = package.loaded["client.slua.logic.wardrobe.wardrobe_data"]
+	if existing then
+		Yargi.HookWardrobeData(existing)
+	end
 	
-	Yargi.InjectAllWardrobeEntities()
 	Yargi.MakePermanent()
-	Yargi.StartRealTimeLoop()
 end
 
 function Yargi.ShowInjectSuccess()
